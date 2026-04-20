@@ -1,43 +1,52 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2014-2017 Marc de Verdelhan, 2017-2021 Ta4j Organization & respective
- * authors (see AUTHORS)
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+/*
+ * SPDX-License-Identifier: MIT
  */
 package org.ta4j.core.indicators.helpers;
 
 import org.ta4j.core.BarSeries;
-import org.ta4j.core.indicators.CachedIndicator;
+import org.ta4j.core.indicators.RecursiveCachedIndicator;
 import org.ta4j.core.num.Num;
 
 /**
  * Volume indicator.
+ *
+ * <p>
+ * Returns the sum of the total traded volumes from the bar series within the
+ * bar count.
+ *
+ * <h2>Algorithm and Complexity</h2>
+ * <p>
+ * The implementation uses a partial-sums (rolling-window) optimization. For
+ * each index {@code i}, the sum is computed as:
+ * {@code sum(i) = sum(i-1) + volume(i) - volume(i - barCount)} when
+ * {@code i >= barCount}, otherwise {@code sum(i) = sum(i-1) + volume(i)} with
+ * {@code sum(beginIndex - 1) = 0}. This reduces per-index work from O(barCount)
+ * to O(1), improving performance when {@code barCount} is large or when many
+ * indices are evaluated. Because the rolling sum depends on {@code sum(i-1)},
+ * this indicator extends {@link RecursiveCachedIndicator} so large cold-cache
+ * warmups are prefetched iteratively instead of recursing through the entire
+ * series. The base case {@code index <= beginIndex} returns
+ * {@code volume(index)} directly.
  */
-public class VolumeIndicator extends CachedIndicator<Num> {
+public class VolumeIndicator extends RecursiveCachedIndicator<Num> {
 
-    private int barCount;
+    private final int barCount;
 
+    /**
+     * Constructor with {@code barCount} = 1.
+     *
+     * @param series the bar series
+     */
     public VolumeIndicator(BarSeries series) {
         this(series, 1);
     }
 
+    /**
+     * Constructor.
+     *
+     * @param series   the bar series
+     * @param barCount the time frame
+     */
     public VolumeIndicator(BarSeries series, int barCount) {
         super(series);
         this.barCount = barCount;
@@ -45,11 +54,24 @@ public class VolumeIndicator extends CachedIndicator<Num> {
 
     @Override
     protected Num calculate(int index) {
-        int startIndex = Math.max(0, index - barCount + 1);
-        Num sumOfVolume = numOf(0);
-        for (int i = startIndex; i <= index; i++) {
-            sumOfVolume = sumOfVolume.plus(getBarSeries().getBar(i).getVolume());
+        int beginIndex = getBarSeries().getBeginIndex();
+        if (index <= beginIndex) {
+            return getBarSeries().getBar(index).getVolume();
         }
-        return sumOfVolume;
+        Num prevSum = getValue(index - 1);
+        Num currentVolume = getBarSeries().getBar(index).getVolume();
+        Num newSum = prevSum.plus(currentVolume);
+        int dropIndex = index - barCount;
+        if (dropIndex >= beginIndex) {
+            Num dropVolume = getBarSeries().getBar(dropIndex).getVolume();
+            return newSum.minus(dropVolume);
+        }
+        return newSum;
+    }
+
+    /** @return {@link #barCount} */
+    @Override
+    public int getCountOfUnstableBars() {
+        return Math.max(0, barCount - 1);
     }
 }

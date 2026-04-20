@@ -1,28 +1,9 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2014-2017 Marc de Verdelhan, 2017-2021 Ta4j Organization & respective
- * authors (see AUTHORS)
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+/*
+ * SPDX-License-Identifier: MIT
  */
 package ta4jexamples.indicators;
 
+import java.awt.Dimension;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 
@@ -31,14 +12,15 @@ import org.jfree.chart.ChartPanel;
 import org.jfree.chart.JFreeChart;
 import org.jfree.chart.axis.DateAxis;
 import org.jfree.chart.plot.XYPlot;
+import org.jfree.chart.ui.ApplicationFrame;
+import org.jfree.chart.ui.UIUtils;
 import org.jfree.data.time.Day;
+import org.jfree.data.time.TimeSeries;
 import org.jfree.data.time.TimeSeriesCollection;
-import org.jfree.ui.ApplicationFrame;
-import org.jfree.ui.RefineryUtilities;
 import org.ta4j.core.Bar;
 import org.ta4j.core.BarSeries;
 import org.ta4j.core.Indicator;
-import org.ta4j.core.indicators.EMAIndicator;
+import org.ta4j.core.indicators.averages.EMAIndicator;
 import org.ta4j.core.indicators.bollinger.BollingerBandsLowerIndicator;
 import org.ta4j.core.indicators.bollinger.BollingerBandsMiddleIndicator;
 import org.ta4j.core.indicators.bollinger.BollingerBandsUpperIndicator;
@@ -46,7 +28,7 @@ import org.ta4j.core.indicators.helpers.ClosePriceIndicator;
 import org.ta4j.core.indicators.statistics.StandardDeviationIndicator;
 import org.ta4j.core.num.Num;
 
-import ta4jexamples.loaders.CsvBarsLoader;
+import ta4jexamples.datasources.CsvFileBarSeriesDataSource;
 
 /**
  * This class builds a graphical chart showing values from indicators.
@@ -61,18 +43,18 @@ public class IndicatorsToChart {
      * @param name      the name of the chart time series
      * @return the JFreeChart time series
      */
-    private static org.jfree.data.time.TimeSeries buildChartBarSeries(BarSeries barSeries, Indicator<Num> indicator,
-            String name) {
-        org.jfree.data.time.TimeSeries chartTimeSeries = new org.jfree.data.time.TimeSeries(name);
+    private static TimeSeries buildChartBarSeries(BarSeries barSeries, Indicator<Num> indicator, String name) {
+        TimeSeries chartTimeSeries = new TimeSeries(name);
         for (int i = 0; i < barSeries.getBarCount(); i++) {
             Bar bar = barSeries.getBar(i);
-            chartTimeSeries.add(new Day(Date.from(bar.getEndTime().toInstant())), indicator.getValue(i).doubleValue());
+            chartTimeSeries.add(new Day(Date.from(bar.getEndTime())), indicator.getValue(i).doubleValue());
         }
         return chartTimeSeries;
     }
 
     /**
-     * Displays a chart in a frame.
+     * Displays a chart in a frame. The frame is configured to avoid stealing focus
+     * when launched from tests or scripts.
      *
      * @param chart the chart to be displayed
      */
@@ -81,13 +63,16 @@ public class IndicatorsToChart {
         ChartPanel panel = new ChartPanel(chart);
         panel.setFillZoomRectangle(true);
         panel.setMouseWheelEnabled(true);
-        panel.setPreferredSize(new java.awt.Dimension(500, 270));
+        panel.setPreferredSize(new Dimension(500, 270));
         // Application frame
         ApplicationFrame frame = new ApplicationFrame("Ta4j example - Indicators to chart");
         frame.setContentPane(panel);
         frame.pack();
-        RefineryUtilities.centerFrameOnScreen(frame);
+        UIUtils.centerFrameOnScreen(frame);
+        frame.setFocusableWindowState(false);
         frame.setVisible(true);
+        frame.setAlwaysOnTop(false);
+        frame.setAutoRequestFocus(false);
     }
 
     public static void main(String[] args) {
@@ -95,7 +80,7 @@ public class IndicatorsToChart {
         /*
          * Getting bar series
          */
-        BarSeries series = CsvBarsLoader.loadAppleIncSeries();
+        BarSeries series = CsvFileBarSeriesDataSource.loadSeriesFromFile();
 
         /*
          * Creating indicators

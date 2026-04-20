@@ -1,25 +1,5 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2014-2017 Marc de Verdelhan, 2017-2021 Ta4j Organization & respective
- * authors (see AUTHORS)
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+/*
+ * SPDX-License-Identifier: MIT
  */
 package org.ta4j.core.indicators;
 
@@ -55,6 +35,7 @@ public class FisherIndicator extends RecursiveCachedIndicator<Num> {
     private final Num densityFactor;
     private final Num gamma;
     private final Num delta;
+    private final Num one;
 
     /**
      * Constructor.
@@ -81,7 +62,7 @@ public class FisherIndicator extends RecursiveCachedIndicator<Num> {
      * @param price    the price indicator (usually {@link MedianPriceIndicator})
      * @param barCount the time frame (usually 10)
      * @param alpha    the alpha (usually 0.33 or 0.5)
-     * @param beta     the beta (usually 0.67 0.5 or)
+     * @param beta     the beta (usually 0.67 or 0.5)
      */
     public FisherIndicator(Indicator<Num> price, int barCount, double alpha, double beta) {
         this(price, barCount, alpha, beta, ZERO_DOT_FIVE, ZERO_DOT_FIVE, 1, true);
@@ -140,23 +121,25 @@ public class FisherIndicator extends RecursiveCachedIndicator<Num> {
             final double gammaD, final double deltaD, double densityFactorD, boolean isPriceIndicator) {
         super(ref);
         this.ref = ref;
-        this.gamma = numOf(gammaD);
-        this.delta = numOf(deltaD);
-        this.densityFactor = numOf(densityFactorD);
+        final var numFactory = getBarSeries().numFactory();
+        this.gamma = numFactory.numOf(gammaD);
+        this.delta = numFactory.numOf(deltaD);
+        this.densityFactor = numFactory.numOf(densityFactorD);
+        this.one = numFactory.one();
 
-        Num alpha = numOf(alphaD);
-        Num beta = numOf(betaD);
+        Num alpha = numFactory.numOf(alphaD);
+        Num beta = numFactory.numOf(betaD);
         final Indicator<Num> periodHigh = new HighestValueIndicator(
                 isPriceIndicator ? new HighPriceIndicator(ref.getBarSeries()) : ref, barCount);
         final Indicator<Num> periodLow = new LowestValueIndicator(
                 isPriceIndicator ? new LowPriceIndicator(ref.getBarSeries()) : ref, barCount);
 
-        intermediateValue = new RecursiveCachedIndicator<Num>(ref) {
+        this.intermediateValue = new RecursiveCachedIndicator<Num>(ref) {
 
             @Override
             protected Num calculate(int index) {
                 if (index <= 0) {
-                    return numOf(0);
+                    return numFactory.zero();
                 }
 
                 // Value = (alpha * 2 * ((ref - MinL) / (MaxH - MinL) - 0.5) + beta *
@@ -164,32 +147,43 @@ public class FisherIndicator extends RecursiveCachedIndicator<Num> {
                 Num currentRef = FisherIndicator.this.ref.getValue(index);
                 Num minL = periodLow.getValue(index);
                 Num maxH = periodHigh.getValue(index);
-                Num term1 = currentRef.minus(minL).dividedBy(maxH.minus(minL)).minus(numOf(ZERO_DOT_FIVE));
-                Num term2 = alpha.multipliedBy(numOf(2)).multipliedBy(term1);
+                Num term1 = currentRef.minus(minL).dividedBy(maxH.minus(minL)).minus(numFactory.numOf(ZERO_DOT_FIVE));
+                Num term2 = alpha.multipliedBy(numFactory.numOf(2)).multipliedBy(term1);
                 Num term3 = term2.plus(beta.multipliedBy(getValue(index - 1)));
                 return term3.dividedBy(FisherIndicator.this.densityFactor);
+            }
+
+            @Override
+            public int getCountOfUnstableBars() {
+                return Math.max(periodHigh.getCountOfUnstableBars(), periodLow.getCountOfUnstableBars());
             }
         };
     }
 
     @Override
     protected Num calculate(int index) {
+        final var numFactory = getBarSeries().numFactory();
         if (index <= 0) {
-            return numOf(0);
+            return numFactory.zero();
         }
 
         Num value = intermediateValue.getValue(index);
 
-        if (value.isGreaterThan(numOf(VALUE_MAX))) {
-            value = numOf(VALUE_MAX);
-        } else if (value.isLessThan(numOf(VALUE_MIN))) {
-            value = numOf(VALUE_MIN);
+        if (value.isGreaterThan(numFactory.numOf(VALUE_MAX))) {
+            value = numFactory.numOf(VALUE_MAX);
+        } else if (value.isLessThan(numFactory.numOf(VALUE_MIN))) {
+            value = numFactory.numOf(VALUE_MIN);
         }
 
         // Fisher = gamma * Log((1 + Value) / (1 - Value)) + delta * priorFisher
-        Num term1 = numOf((Math.log(numOf(1).plus(value).dividedBy(numOf(1).minus(value)).doubleValue())));
+        Num term1 = numFactory.numOf((Math.log(one.plus(value).dividedBy(one.minus(value)).doubleValue())));
         Num term2 = getValue(index - 1);
         return gamma.multipliedBy(term1).plus(delta.multipliedBy(term2));
+    }
+
+    @Override
+    public int getCountOfUnstableBars() {
+        return intermediateValue.getCountOfUnstableBars();
     }
 
 }

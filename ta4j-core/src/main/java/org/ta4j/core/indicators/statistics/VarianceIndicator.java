@@ -1,71 +1,107 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2014-2017 Marc de Verdelhan, 2017-2021 Ta4j Organization & respective
- * authors (see AUTHORS)
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+/*
+ * SPDX-License-Identifier: MIT
  */
 package org.ta4j.core.indicators.statistics;
 
+import java.util.Objects;
+
 import org.ta4j.core.Indicator;
 import org.ta4j.core.indicators.CachedIndicator;
-import org.ta4j.core.indicators.SMAIndicator;
+import org.ta4j.core.indicators.averages.SMAIndicator;
 import org.ta4j.core.num.Num;
 
 /**
  * Variance indicator.
+ *
+ * <p>
+ * The default constructor computes <b>sample variance</b> (divisor
+ * {@code n - 1}) for rolling windows. Use {@link #ofPopulation(Indicator, int)}
+ * (or the {@link SampleType} constructor) when population variance is required.
+ * </p>
  */
 public class VarianceIndicator extends CachedIndicator<Num> {
 
     private final Indicator<Num> indicator;
     private final int barCount;
     private final SMAIndicator sma;
+    private final SampleType sampleType;
+
+    /**
+     * Constructor using {@link SampleType#SAMPLE}.
+     *
+     * @param indicator the indicator
+     * @param barCount  the time frame
+     * @since 0.22.4
+     */
+    public VarianceIndicator(Indicator<Num> indicator, int barCount) {
+        this(indicator, barCount, SampleType.SAMPLE);
+    }
 
     /**
      * Constructor.
-     * 
+     *
+     * @param indicator  the indicator
+     * @param barCount   the time frame
+     * @param sampleType sample/population variance selection
+     * @since 0.22.4
+     */
+    public VarianceIndicator(Indicator<Num> indicator, int barCount, SampleType sampleType) {
+        super(indicator);
+        this.indicator = Objects.requireNonNull(indicator, "indicator must not be null");
+        this.barCount = Math.max(barCount, 1);
+        this.sampleType = Objects.requireNonNull(sampleType, "sampleType must not be null");
+        this.sma = new SMAIndicator(indicator, this.barCount);
+    }
+
+    /**
+     * Creates an indicator using sample variance ({@code n - 1} divisor).
+     *
      * @param indicator the indicator
      * @param barCount  the time frame
+     * @return a sample-variance indicator
+     * @since 0.22.4
      */
-    public VarianceIndicator(Indicator<Num> indicator, int barCount) {
-        super(indicator);
-        this.indicator = indicator;
-        this.barCount = barCount;
-        this.sma = new SMAIndicator(indicator, barCount);
+    public static VarianceIndicator ofSample(Indicator<Num> indicator, int barCount) {
+        return new VarianceIndicator(indicator, barCount, SampleType.SAMPLE);
+    }
+
+    /**
+     * Creates an indicator using population variance ({@code n} divisor).
+     *
+     * @param indicator the indicator
+     * @param barCount  the time frame
+     * @return a population-variance indicator
+     * @since 0.22.4
+     */
+    public static VarianceIndicator ofPopulation(Indicator<Num> indicator, int barCount) {
+        return new VarianceIndicator(indicator, barCount, SampleType.POPULATION);
     }
 
     @Override
     protected Num calculate(int index) {
         final int startIndex = Math.max(0, index - barCount + 1);
         final int numberOfObservations = index - startIndex + 1;
-        Num variance = numOf(0);
+        final var numFactory = getBarSeries().numFactory();
+        Num variance = numFactory.zero();
         Num average = sma.getValue(index);
         for (int i = startIndex; i <= index; i++) {
             Num pow = indicator.getValue(i).minus(average).pow(2);
             variance = variance.plus(pow);
         }
-        variance = variance.dividedBy(numOf(numberOfObservations));
-        return variance;
+        final int divisor = sampleType.isSample() ? numberOfObservations - 1 : numberOfObservations;
+        if (divisor <= 0) {
+            return numFactory.zero();
+        }
+        return variance.dividedBy(numFactory.numOf(divisor));
+    }
+
+    @Override
+    public int getCountOfUnstableBars() {
+        return indicator.getCountOfUnstableBars() + barCount - 1;
     }
 
     @Override
     public String toString() {
-        return getClass().getSimpleName() + " barCount: " + barCount;
+        return getClass().getSimpleName() + " barCount: " + barCount + " sampleType: " + sampleType;
     }
 }

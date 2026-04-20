@@ -1,25 +1,5 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2014-2017 Marc de Verdelhan, 2017-2021 Ta4j Organization & respective
- * authors (see AUTHORS)
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+/*
+ * SPDX-License-Identifier: MIT
  */
 package org.ta4j.core.indicators.statistics;
 
@@ -32,10 +12,12 @@ import org.ta4j.core.num.Num;
 /**
  * Periodical Growth Rate indicator.
  *
+ * <p>
  * In general the 'Growth Rate' is useful for comparing the average returns of
  * investments in stocks or funds and can be used to compare the performance
  * e.g. comparing the historical returns of stocks with bonds.
  *
+ * <p>
  * This indicator has the following characteristics: - the calculation is
  * timeframe dependendant. The timeframe corresponds to the number of trading
  * events in a period, e. g. the timeframe for a US trading year for end of day
@@ -45,16 +27,20 @@ import org.ta4j.core.num.Num;
  * full year is reached - NaN values for incomplete timeframes, e.g. timeframe
  * is a year and your timeseries contains data for 11,3 years, than no values
  * are calculated for the remaining 0,3 years - the method 'getTotalReturn'
- * calculates the total return over all returns of the coresponding timeframes
+ * calculates the total return over all returns of the corresponding timeframes
  *
+ * <p>
+ * Further readings:
  *
- * Further readings: Good sumary on 'Rate of Return':
- * https://en.wikipedia.org/wiki/Rate_of_return Annual return / CAGR:
- * http://www.investopedia.com/terms/a/annual-return.asp Annualized Total
- * Return: http://www.investopedia.com/terms/a/annualized-total-return.asp
- * Annualized Return vs. Cumulative Return:
+ * <ul>
+ * <li>Good summary on 'Rate of Return':
+ * https://en.wikipedia.org/wiki/Rate_of_return Annual return
+ * <li>CAGR: http://www.investopedia.com/terms/a/annual-return.asp
+ * <li>Annualized Total Return:
+ * http://www.investopedia.com/terms/a/annualized-total-return.asp
+ * <li>Annualized Return vs. Cumulative Return:
  * http://www.fool.com/knowledge-center/2015/11/03/annualized-return-vs-cumulative-return.aspx
- *
+ * </ul>
  */
 public class PeriodicalGrowthRateIndicator extends CachedIndicator<Num> {
 
@@ -65,7 +51,7 @@ public class PeriodicalGrowthRateIndicator extends CachedIndicator<Num> {
     /**
      * Constructor. Example: use barCount = 251 and "end of day"-bars for annual
      * behaviour in the US (http://tradingsim.com/blog/trading-days-in-a-year/).
-     * 
+     *
      * @param indicator the indicator
      * @param barCount  the time frame
      */
@@ -73,7 +59,7 @@ public class PeriodicalGrowthRateIndicator extends CachedIndicator<Num> {
         super(indicator);
         this.indicator = indicator;
         this.barCount = barCount;
-        one = numOf(1);
+        this.one = getBarSeries().numFactory().one();
     }
 
     /**
@@ -81,7 +67,7 @@ public class PeriodicalGrowthRateIndicator extends CachedIndicator<Num> {
      * For a barCount = number of trading days within a year (e. g. 251 days in the
      * US) and "end of day"-bars you will get the 'Annualized Total Return'. Only
      * complete barCounts are taken into the calculation.
-     * 
+     *
      * @return the total return from the calculated results of the method
      *         'calculate'
      */
@@ -101,7 +87,7 @@ public class PeriodicalGrowthRateIndicator extends CachedIndicator<Num> {
             }
         }
 
-        return totalProduct.pow(one.dividedBy(numOf(completeTimeFrames)));
+        return totalProduct.pow(one.dividedBy(getBarSeries().numFactory().numOf(completeTimeFrames)));
     }
 
     @Override
@@ -111,11 +97,13 @@ public class PeriodicalGrowthRateIndicator extends CachedIndicator<Num> {
 
         int helpPartialTimeframe = index % barCount;
         // TODO: implement Num.floor()
-        Num helpFullTimeframes = numOf(
-                Math.floor(numOf(indicator.getBarSeries().getBarCount()).dividedBy(numOf(barCount)).doubleValue()));
-        Num helpIndexTimeframes = numOf(index).dividedBy(numOf(barCount));
+        final var numFactory = getBarSeries().numFactory();
+        Num helpFullTimeframes = numFactory.numOf(Math.floor(numFactory.numOf(indicator.getBarSeries().getBarCount())
+                .dividedBy(numFactory.numOf(barCount))
+                .doubleValue()));
+        Num helpIndexTimeframes = numFactory.numOf(index).dividedBy(numFactory.numOf(barCount));
 
-        Num helpPartialTimeframeHeld = numOf(helpPartialTimeframe).dividedBy(numOf(barCount));
+        Num helpPartialTimeframeHeld = numFactory.numOf(helpPartialTimeframe).dividedBy(numFactory.numOf(barCount));
         Num partialTimeframeHeld = (helpPartialTimeframeHeld.isZero()) ? one : helpPartialTimeframeHeld;
 
         // Avoid calculations of returns:
@@ -131,6 +119,10 @@ public class PeriodicalGrowthRateIndicator extends CachedIndicator<Num> {
         }
 
         return timeframedReturn;
+    }
 
+    @Override
+    public int getCountOfUnstableBars() {
+        return indicator.getCountOfUnstableBars() + barCount;
     }
 }

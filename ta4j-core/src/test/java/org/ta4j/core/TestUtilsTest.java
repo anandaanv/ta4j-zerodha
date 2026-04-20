@@ -1,25 +1,5 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2014-2017 Marc de Verdelhan, 2017-2021 Ta4j Organization & respective
- * authors (see AUTHORS)
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+/*
+ * SPDX-License-Identifier: MIT
  */
 package org.ta4j.core;
 
@@ -30,14 +10,12 @@ import static org.ta4j.core.TestUtils.assertNumNotEquals;
 
 import java.math.BigDecimal;
 import java.time.Duration;
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
-import java.util.function.Function;
-
+import java.time.Instant;
 import org.junit.Test;
 import org.ta4j.core.indicators.AbstractIndicatorTest;
 import org.ta4j.core.indicators.helpers.ClosePriceIndicator;
 import org.ta4j.core.num.Num;
+import org.ta4j.core.num.NumFactory;
 
 public class TestUtilsTest extends AbstractIndicatorTest<BarSeries, Num> {
 
@@ -58,8 +36,8 @@ public class TestUtilsTest extends AbstractIndicatorTest<BarSeries, Num> {
     private static Indicator<Num> indicator;
     private static Indicator<Num> diffIndicator;
 
-    public TestUtilsTest(Function<Number, Num> numFunction) {
-        super(numFunction);
+    public TestUtilsTest(NumFactory numFactory) {
+        super(numFactory);
         numStringDouble = numOf(bigDecimalDouble);
         diffNumStringDouble = numOf(diffBigDecimalDouble);
         numInt = numOf(aInt);
@@ -73,15 +51,24 @@ public class TestUtilsTest extends AbstractIndicatorTest<BarSeries, Num> {
     }
 
     private BarSeries randomSeries() {
-        BaseBarSeriesBuilder builder = new BaseBarSeriesBuilder();
-        BarSeries series = builder.withNumTypeOf(numFunction).build();
-        ZonedDateTime time = ZonedDateTime.of(1970, 1, 1, 1, 1, 1, 1, ZoneId.systemDefault());
+        var series = new BaseBarSeriesBuilder().withNumFactory(numFactory).build();
+
+        var time = Instant.parse("1970-01-01T01:01:01Z");
         double random;
         for (int i = 0; i < 1000; i++) {
             random = Math.random();
-            time = time.plusDays(i);
-            series.addBar(new BaseBar(Duration.ofDays(1), time, random, random, random, random, random, random, 0,
-                    numFunction));
+            time = time.plus(Duration.ofDays(i));
+            series.barBuilder()
+                    .timePeriod(Duration.ofDays(1))
+                    .endTime(time)
+                    .openPrice(random)
+                    .closePrice(random)
+                    .highPrice(random)
+                    .lowPrice(random)
+                    .amount(random)
+                    .volume(random)
+                    .trades(0)
+                    .add();
         }
         return series;
     }

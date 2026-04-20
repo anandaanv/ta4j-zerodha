@@ -1,41 +1,19 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2014-2017 Marc de Verdelhan, 2017-2021 Ta4j Organization & respective
- * authors (see AUTHORS)
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+/*
+ * SPDX-License-Identifier: MIT
  */
 package ta4jexamples.logging;
 
 import java.net.URL;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.core.config.ConfigurationFactory;
+import org.apache.logging.log4j.core.config.Configurator;
 import org.ta4j.core.BarSeries;
-import org.ta4j.core.BarSeriesManager;
 import org.ta4j.core.Strategy;
+import org.ta4j.core.backtest.BarSeriesManager;
 
-import ch.qos.logback.classic.LoggerContext;
-import ch.qos.logback.classic.joran.JoranConfigurator;
-import ch.qos.logback.core.joran.spi.JoranException;
-import ta4jexamples.loaders.CsvTradesLoader;
+import ta4jexamples.datasources.BitStampCsvTradesFileBarSeriesDataSource;
 import ta4jexamples.strategies.CCICorrectionStrategy;
 
 /**
@@ -43,41 +21,56 @@ import ta4jexamples.strategies.CCICorrectionStrategy;
  */
 public class StrategyExecutionLogging {
 
-    private static final URL LOGBACK_CONF_FILE = StrategyExecutionLogging.class.getClassLoader()
-            .getResource("logback-traces.xml");
+    private static final Logger LOGGER = LogManager.getLogger(StrategyExecutionLogging.class);
+    private static final URL LOG4J_CONFIGURATION = StrategyExecutionLogging.class.getClassLoader()
+            .getResource("log4j2-traces.xml");
+    private static String previousConfigurationFile;
 
     /**
-     * Loads the Logback configuration from a resource file. Only here to avoid
-     * polluting other examples with logs. Could be replaced by a simple logback.xml
+     * Loads the Log4j configuration from a resource file. Only here to avoid
+     * polluting other examples with logs. Could be replaced by a simple log4j2.xml
      * file in the resource folder.
      */
     private static void loadLoggerConfiguration() {
-        LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
-        context.reset();
+        if (LOG4J_CONFIGURATION == null) {
+            LOGGER.warn("Unable to locate log4j2-traces.xml on the classpath");
+            return;
+        }
 
-        JoranConfigurator configurator = new JoranConfigurator();
-        configurator.setContext(context);
+        if (previousConfigurationFile == null) {
+            previousConfigurationFile = System.getProperty(ConfigurationFactory.CONFIGURATION_FILE_PROPERTY);
+        }
+
+        System.setProperty(ConfigurationFactory.CONFIGURATION_FILE_PROPERTY, LOG4J_CONFIGURATION.toString());
         try {
-            configurator.doConfigure(LOGBACK_CONF_FILE);
-        } catch (JoranException je) {
-            Logger.getLogger(StrategyExecutionLogging.class.getName()).log(Level.SEVERE,
-                    "Unable to load Logback configuration", je);
+            Configurator.reconfigure();
+        } catch (RuntimeException exception) {
+            LOGGER.error("Unable to load Log4j configuration", exception);
+            restorePreviousConfiguration();
         }
     }
 
     private static void unloadLoggerConfiguration() {
-        LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
-        context.reset();
-        JoranConfigurator configurator = new JoranConfigurator();
-        configurator.setContext(context);
+        restorePreviousConfiguration();
+    }
+
+    private static void restorePreviousConfiguration() {
+        if (previousConfigurationFile == null) {
+            System.clearProperty(ConfigurationFactory.CONFIGURATION_FILE_PROPERTY);
+        } else {
+            System.setProperty(ConfigurationFactory.CONFIGURATION_FILE_PROPERTY, previousConfigurationFile);
+        }
+
+        Configurator.reconfigure();
+        previousConfigurationFile = null;
     }
 
     public static void main(String[] args) {
-        // Loading the Logback configuration
+        // Loading the Log4j configuration
         loadLoggerConfiguration();
 
         // Getting the bar series
-        BarSeries series = CsvTradesLoader.loadBitstampSeries();
+        BarSeries series = BitStampCsvTradesFileBarSeriesDataSource.loadBitstampSeries();
 
         // Building the trading strategy
         Strategy strategy = CCICorrectionStrategy.buildStrategy(series);
@@ -86,7 +79,7 @@ public class StrategyExecutionLogging {
         BarSeriesManager seriesManager = new BarSeriesManager(series);
         seriesManager.run(strategy);
 
-        // Unload the Logback configuration
+        // Unload the Log4j configuration
         unloadLoggerConfiguration();
     }
 }

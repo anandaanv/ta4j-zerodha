@@ -1,78 +1,113 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2014-2017 Marc de Verdelhan, 2017-2021 Ta4j Organization & respective
- * authors (see AUTHORS)
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+/*
+ * SPDX-License-Identifier: MIT
  */
 package org.ta4j.core.rules;
 
 import java.time.LocalTime;
-import java.time.ZonedDateTime;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 import org.ta4j.core.TradingRecord;
-import org.ta4j.core.indicators.DateTimeIndicator;
+import org.ta4j.core.indicators.helpers.DateTimeIndicator;
 
 /**
- * Time range rule.
+ * Satisfied when the "local time" value of the {@link DateTimeIndicator} is
+ * within the specified set of {@link TimeRange}.
  *
- * Satisfied when the local time value of the DateTimeIndicator is within a time
- * range specified in the TimeRange list.
+ * <p>
+ * An {@link java.time.Instant UTC} itself does not have a concept of a local
+ * time, as UTC is a time standard that does not include details such as days of
+ * the week. However, this rule converts a UTC to a ZonedDateTime in the
+ * system's default time zone and then to a LocalTime to get the local time in
+ * that time zone.
+ *
+ * <p>
+ * This rule does not use the {@code tradingRecord}.
  */
 public class TimeRangeRule extends AbstractRule {
 
-    private final List<TimeRange> timeRanges;
-    private final DateTimeIndicator timeIndicator;
-
-    public TimeRangeRule(List<TimeRange> timeRanges, DateTimeIndicator beginTimeIndicator) {
-        this.timeRanges = timeRanges;
-        this.timeIndicator = beginTimeIndicator;
+    public record TimeRange(LocalTime from, LocalTime to) {
     }
 
+    private final List<TimeRange> timeRanges;
+    private final DateTimeIndicator timeIndicator;
+    private final int[] fromSecondOfDay;
+    private final int[] toSecondOfDay;
+
+    /**
+     * Constructor.
+     *
+     * @param timeRanges         the list of time ranges
+     * @param beginTimeIndicator the beginTime indicator
+     */
+    public TimeRangeRule(List<TimeRange> timeRanges, DateTimeIndicator beginTimeIndicator) {
+        this(beginTimeIndicator, extractSeconds(timeRanges, true), extractSeconds(timeRanges, false));
+    }
+
+    /**
+     * Constructor for serialization support that accepts the ranges as total
+     * seconds-of-day arrays.
+     *
+     * @param beginTimeIndicator the beginTime indicator
+     * @param fromSecondOfDay    the inclusive range starting points measured in
+     *                           seconds since midnight (0-86399)
+     * @param toSecondOfDay      the inclusive range ending points measured in
+     *                           seconds since midnight (0-86399)
+     */
+    public TimeRangeRule(DateTimeIndicator beginTimeIndicator, int[] fromSecondOfDay, int[] toSecondOfDay) {
+        this.timeIndicator = Objects.requireNonNull(beginTimeIndicator, "timeIndicator");
+        Objects.requireNonNull(fromSecondOfDay, "fromSecondOfDay");
+        Objects.requireNonNull(toSecondOfDay, "toSecondOfDay");
+        if (fromSecondOfDay.length != toSecondOfDay.length) {
+            throw new IllegalArgumentException("fromSecondOfDay and toSecondOfDay must have the same length");
+        }
+        if (fromSecondOfDay.length == 0) {
+            throw new IllegalArgumentException("At least one time range is required");
+        }
+        this.fromSecondOfDay = Arrays.copyOf(fromSecondOfDay, fromSecondOfDay.length);
+        this.toSecondOfDay = Arrays.copyOf(toSecondOfDay, toSecondOfDay.length);
+        List<TimeRange> normalizedRanges = new ArrayList<>(this.fromSecondOfDay.length);
+        for (int i = 0; i < this.fromSecondOfDay.length; i++) {
+            LocalTime from = LocalTime.ofSecondOfDay(validateSecond(this.fromSecondOfDay[i]));
+            LocalTime to = LocalTime.ofSecondOfDay(validateSecond(this.toSecondOfDay[i]));
+            normalizedRanges.add(new TimeRange(from, to));
+        }
+        this.timeRanges = List.copyOf(normalizedRanges);
+    }
+
+    /** This rule does not use the {@code tradingRecord}. */
     @Override
     public boolean isSatisfied(int index, TradingRecord tradingRecord) {
-        boolean satisfied = false;
-        ZonedDateTime dateTime = this.timeIndicator.getValue(index);
-        LocalTime localTime = dateTime.toLocalTime();
-        satisfied = this.timeRanges.stream().anyMatch(
-                timeRange -> !localTime.isBefore(timeRange.getFrom()) && !localTime.isAfter(timeRange.getTo()));
+        var localTime = LocalTime.ofInstant(timeIndicator.getValue(index), ZoneOffset.UTC);
+        final boolean satisfied = timeRanges.stream().anyMatch(range -> {
+            return !localTime.isBefore(range.from()) && !localTime.isAfter(range.to());
+        });
         traceIsSatisfied(index, satisfied);
         return satisfied;
     }
 
-    public static class TimeRange {
-
-        private final LocalTime from;
-        private final LocalTime to;
-
-        public TimeRange(LocalTime from, LocalTime to) {
-            this.from = from;
-            this.to = to;
+    private static int validateSecond(int second) {
+        if (second < 0 || second >= 24 * 60 * 60) {
+            throw new IllegalArgumentException("Second of day must be between 0 and 86399 but was: " + second);
         }
-
-        public LocalTime getFrom() {
-            return from;
-        }
-
-        public LocalTime getTo() {
-            return to;
-        }
+        return second;
     }
+
+    private static int[] extractSeconds(List<TimeRange> ranges, boolean useFrom) {
+        Objects.requireNonNull(ranges, "timeRanges");
+        if (ranges.isEmpty()) {
+            throw new IllegalArgumentException("At least one time range is required");
+        }
+        int[] seconds = new int[ranges.size()];
+        for (int i = 0; i < ranges.size(); i++) {
+            TimeRange range = Objects.requireNonNull(ranges.get(i), "timeRange");
+            LocalTime time = useFrom ? range.from() : range.to();
+            seconds[i] = Objects.requireNonNull(time, "time").toSecondOfDay();
+        }
+        return seconds;
+    }
+
 }

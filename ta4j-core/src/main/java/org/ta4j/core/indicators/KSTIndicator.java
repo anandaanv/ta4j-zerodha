@@ -1,36 +1,23 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2014-2017 Marc de Verdelhan, 2017-2021 Ta4j Organization & respective
- * authors (see AUTHORS)
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+/*
+ * SPDX-License-Identifier: MIT
  */
 package org.ta4j.core.indicators;
 
 import org.ta4j.core.Indicator;
+import org.ta4j.core.indicators.averages.SMAIndicator;
 import org.ta4j.core.num.Num;
 
 /**
- * Know Sure Thing (KST) RCMA1 = X1-Period SMA of Y1-Period Rate-of-Change RCMA2
- * = X2-Period SMA of Y2-Period Rate-of-Change RCMA3 = X3-Period SMA of
- * Y3-Period Rate-of-Change RCMA4 = X4-Period SMA of Y4-Period Rate-of-Change
+ * Know Sure Thing (KST) indicator.
+ *
+ * <pre>
+ * RCMA1 = X1-Period SMA of Y1-Period Rate-of-Change
+ * RCMA2 = X2-Period SMA of Y2-Period Rate-of-Change
+ * RCMA3 = X3-Period SMA of Y3-Period Rate-of-Change
+ * RCMA4 = X4-Period SMA of Y4-Period Rate-of-Change
+ *
  * KST = (RCMA1 x 1) + (RCMA2 x 2) + (RCMA3 x 3) + (RCMA4 x 4)
+ * </pre>
  *
  * @see <a href=
  *      "https://school.stockcharts.com/doku.php?id=technical_indicators:know_sure_thing_kst">
@@ -38,18 +25,27 @@ import org.ta4j.core.num.Num;
  *      </a>
  */
 public class KSTIndicator extends CachedIndicator<Num> {
-    private SMAIndicator RCMA1;
-    private SMAIndicator RCMA2;
-    private SMAIndicator RCMA3;
-    private SMAIndicator RCMA4;
+
+    private final SMAIndicator RCMA1;
+    private final SMAIndicator RCMA2;
+    private final SMAIndicator RCMA3;
+    private final SMAIndicator RCMA4;
+    private final Num RCMA1_Multiplier = getBarSeries().numFactory().one();
+    private final Num RCMA2_Multiplier = getBarSeries().numFactory().numOf(2);
+    private final Num RCMA3_Multiplier = getBarSeries().numFactory().numOf(3);
+    private final Num RCMA4_Multiplier = getBarSeries().numFactory().numOf(4);
 
     /**
+     * Constructor with:
      *
-     * @param indicator the indicator. Default parameters: RCMA1 = 10-Period SMA of
-     *                  10-Period Rate-of-Change RCMA2 = 10-Period SMA of 15-Period
-     *                  Rate-of-Change RCMA3 = 10-Period SMA of 20-Period
-     *                  Rate-of-Change RCMA4 = 15-Period SMA of 30-Period
-     *                  Rate-of-Change
+     * <ul>
+     * <li>RCMA1 = 10-Period SMA of 10-Period Rate-of-Change
+     * <li>RCMA2 = 10-Period SMA of 15-Period Rate-of-Change
+     * <li>RCMA3 = 10-Period SMA of 20-Period Rate-of-Change
+     * <li>RCMA4 = 15-Period SMA of 30-Period Rate-of-Change
+     * </ul>
+     *
+     * @param indicator the {@link Indicator}
      */
     public KSTIndicator(Indicator<Num> indicator) {
         super(indicator);
@@ -60,6 +56,7 @@ public class KSTIndicator extends CachedIndicator<Num> {
     }
 
     /**
+     * Constructor.
      *
      * @param indicator        the indicator.
      * @param rcma1SMABarCount RCMA1 SMA period.
@@ -83,14 +80,16 @@ public class KSTIndicator extends CachedIndicator<Num> {
 
     @Override
     protected Num calculate(int index) {
-        Num RCMA1Multiplier = numOf(1);
-        Num RCMA2Multiplier = numOf(2);
-        Num RCMA3Multiplier = numOf(3);
-        Num RCMA4Multiplier = numOf(4);
+        return ((RCMA1.getValue(index).multipliedBy(RCMA1_Multiplier))
+                .plus(RCMA2.getValue(index).multipliedBy(RCMA2_Multiplier))
+                .plus(RCMA3.getValue(index).multipliedBy(RCMA3_Multiplier))
+                .plus(RCMA4.getValue(index).multipliedBy(RCMA4_Multiplier)));
+    }
 
-        return ((RCMA1.getValue(index).multipliedBy(RCMA1Multiplier))
-                .plus(RCMA2.getValue(index).multipliedBy(RCMA2Multiplier))
-                .plus(RCMA3.getValue(index).multipliedBy(RCMA3Multiplier))
-                .plus(RCMA4.getValue(index).multipliedBy(RCMA4Multiplier)));
+    @Override
+    public int getCountOfUnstableBars() {
+        int firstPair = Math.max(RCMA1.getCountOfUnstableBars(), RCMA2.getCountOfUnstableBars());
+        int secondPair = Math.max(RCMA3.getCountOfUnstableBars(), RCMA4.getCountOfUnstableBars());
+        return Math.max(firstPair, secondPair);
     }
 }

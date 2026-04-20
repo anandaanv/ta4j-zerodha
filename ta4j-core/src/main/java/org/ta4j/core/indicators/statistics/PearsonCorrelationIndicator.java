@@ -1,25 +1,5 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2014-2017 Marc de Verdelhan, 2017-2021 Ta4j Organization & respective
- * authors (see AUTHORS)
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+/*
+ * SPDX-License-Identifier: MIT
  */
 package org.ta4j.core.indicators.statistics;
 
@@ -59,13 +39,15 @@ public class PearsonCorrelationIndicator extends RecursiveCachedIndicator<Num> {
     @Override
     protected Num calculate(int index) {
 
-        Num n = numOf(barCount);
+        final var numFactory = getBarSeries().numFactory();
+        Num n = numFactory.numOf(barCount);
 
-        Num Sx = numOf(0);
-        Num Sy = numOf(0);
-        Num Sxx = numOf(0);
-        Num Syy = numOf(0);
-        Num Sxy = numOf(0);
+        Num zero = numFactory.zero();
+        Num Sx = zero;
+        Num Sy = zero;
+        Num Sxx = zero;
+        Num Syy = zero;
+        Num Sxy = zero;
 
         for (int i = Math.max(getBarSeries().getBeginIndex(), index - barCount + 1); i <= index; i++) {
 
@@ -83,12 +65,18 @@ public class PearsonCorrelationIndicator extends RecursiveCachedIndicator<Num> {
         Num toSqrt = (n.multipliedBy(Sxx).minus(Sx.multipliedBy(Sx)))
                 .multipliedBy(n.multipliedBy(Syy).minus(Sy.multipliedBy(Sy)));
 
-        if (toSqrt.isGreaterThan(numOf(0))) {
+        if (toSqrt.isGreaterThan(numFactory.zero())) {
             // pearson = (n * Sxy - Sx * Sy) / sqrt((n * Sxx - Sx * Sx) * (n * Syy - Sy *
             // Sy))
             return (n.multipliedBy(Sxy).minus(Sx.multipliedBy(Sy))).dividedBy(toSqrt.sqrt());
         }
 
         return NaN;
+    }
+
+    @Override
+    public int getCountOfUnstableBars() {
+        int baseUnstableBars = Math.max(indicator1.getCountOfUnstableBars(), indicator2.getCountOfUnstableBars());
+        return baseUnstableBars + barCount - 1;
     }
 }

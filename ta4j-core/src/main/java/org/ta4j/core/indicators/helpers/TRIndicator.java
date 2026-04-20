@@ -1,48 +1,90 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2014-2017 Marc de Verdelhan, 2017-2021 Ta4j Organization & respective
- * authors (see AUTHORS)
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+/*
+ * SPDX-License-Identifier: MIT
  */
 package org.ta4j.core.indicators.helpers;
 
 import org.ta4j.core.BarSeries;
+import org.ta4j.core.Indicator;
 import org.ta4j.core.indicators.CachedIndicator;
+import org.ta4j.core.indicators.IndicatorUtils;
 import org.ta4j.core.num.Num;
+
+import static org.ta4j.core.num.NaN.NaN;
 
 /**
  * True range indicator.
+ *
+ * <pre>
+ * TrueRange = MAX(high - low, high - previousClose, previousClose - low)
+ * </pre>
  */
 public class TRIndicator extends CachedIndicator<Num> {
 
+    private final Indicator<Num> highPriceIndicator;
+    private final Indicator<Num> lowPriceIndicator;
+    private final Indicator<Num> closePriceIndicator;
+
+    /**
+     * Constructor.
+     *
+     * @param series the bar series
+     */
     public TRIndicator(BarSeries series) {
-        super(series);
+        this(new HighPriceIndicator(series), new LowPriceIndicator(series), new ClosePriceIndicator(series));
+    }
+
+    /**
+     * Constructor.
+     *
+     * @param highPriceIndicator  high-price indicator
+     * @param lowPriceIndicator   low-price indicator
+     * @param closePriceIndicator close-price indicator
+     * @since 0.22.3
+     */
+    public TRIndicator(Indicator<Num> highPriceIndicator, Indicator<Num> lowPriceIndicator,
+            Indicator<Num> closePriceIndicator) {
+        super(IndicatorUtils.requireSameSeries(highPriceIndicator, lowPriceIndicator, closePriceIndicator));
+        this.highPriceIndicator = highPriceIndicator;
+        this.lowPriceIndicator = lowPriceIndicator;
+        this.closePriceIndicator = closePriceIndicator;
     }
 
     @Override
     protected Num calculate(int index) {
-        Num ts = getBarSeries().getBar(index).getHighPrice().minus(getBarSeries().getBar(index).getLowPrice());
-        Num ys = index == 0 ? numOf(0)
-                : getBarSeries().getBar(index).getHighPrice().minus(getBarSeries().getBar(index - 1).getClosePrice());
-        Num yst = index == 0 ? numOf(0)
-                : getBarSeries().getBar(index - 1).getClosePrice().minus(getBarSeries().getBar(index).getLowPrice());
-        return ts.abs().max(ys.abs()).max(yst.abs());
+        if (index < getCountOfUnstableBars()) {
+            return NaN;
+        }
+
+        Num high = highPriceIndicator.getValue(index);
+        Num low = lowPriceIndicator.getValue(index);
+        if (Num.isNaNOrNull(high) || Num.isNaNOrNull(low)) {
+            return NaN;
+        }
+        Num hl = high.minus(low).abs();
+        if (index <= getBarSeries().getBeginIndex()) {
+            return hl;
+        }
+
+        Num previousClose = closePriceIndicator.getValue(index - 1);
+        if (Num.isNaNOrNull(previousClose)) {
+            return NaN;
+        }
+        Num hc = high.minus(previousClose).abs();
+        Num cl = previousClose.minus(low).abs();
+        return hl.max(hc).max(cl);
+
+    }
+
+    /**
+     * Includes one additional bar only when the close input itself has a warm-up
+     * window, because true range reads {@code close(index - 1)}.
+     */
+    @Override
+    public int getCountOfUnstableBars() {
+        int highUnstable = highPriceIndicator.getCountOfUnstableBars();
+        int lowUnstable = lowPriceIndicator.getCountOfUnstableBars();
+        int closeUnstable = closePriceIndicator.getCountOfUnstableBars();
+        int previousCloseUnstable = closeUnstable == 0 ? 0 : closeUnstable + 1;
+        return Math.max(highUnstable, Math.max(lowUnstable, previousCloseUnstable));
     }
 }

@@ -1,64 +1,89 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2014-2017 Marc de Verdelhan, 2017-2021 Ta4j Organization & respective
- * authors (see AUTHORS)
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+/*
+ * SPDX-License-Identifier: MIT
  */
 package org.ta4j.core.indicators.statistics;
 
+import java.util.Objects;
+
 import org.ta4j.core.Indicator;
 import org.ta4j.core.indicators.CachedIndicator;
-import org.ta4j.core.indicators.SMAIndicator;
+import org.ta4j.core.indicators.averages.SMAIndicator;
 import org.ta4j.core.num.Num;
 
 /**
  * Sigma-Indicator (also called, "z-score" or "standard score").
  *
- * see http://www.statisticshowto.com/probability-and-statistics/z-score/
+ * @see http://www.statisticshowto.com/probability-and-statistics/z-score/
  */
 public class SigmaIndicator extends CachedIndicator<Num> {
 
-    private Indicator<Num> ref;
-    private int barCount;
+    private final Indicator<Num> ref;
+    private final int barCount;
 
-    private SMAIndicator mean;
-    private StandardDeviationIndicator sd;
+    private final SMAIndicator mean;
+    private final StandardDeviationIndicator sd;
 
     /**
-     * Constructor.
-     * 
+     * Constructor using {@link SampleType#POPULATION} for backward compatibility.
+     *
      * @param ref      the indicator
      * @param barCount the time frame
      */
     public SigmaIndicator(Indicator<Num> ref, int barCount) {
+        this(ref, barCount, SampleType.POPULATION);
+    }
+
+    /**
+     * Constructor.
+     *
+     * @param ref        the indicator
+     * @param barCount   the time frame
+     * @param sampleType sample/population variance selection
+     * @since 0.22.4
+     */
+    public SigmaIndicator(Indicator<Num> ref, int barCount, SampleType sampleType) {
         super(ref);
         this.ref = ref;
         this.barCount = barCount;
-        mean = new SMAIndicator(ref, barCount);
-        sd = new StandardDeviationIndicator(ref, barCount);
+        this.mean = new SMAIndicator(ref, barCount);
+        this.sd = Objects.requireNonNull(sampleType, "sampleType must not be null").isSample()
+                ? StandardDeviationIndicator.ofSample(ref, barCount)
+                : StandardDeviationIndicator.ofPopulation(ref, barCount);
+    }
+
+    /**
+     * Creates a sigma indicator using sample standard deviation.
+     *
+     * @param ref      the indicator
+     * @param barCount the time frame
+     * @return a sample sigma indicator
+     * @since 0.22.4
+     */
+    public static SigmaIndicator ofSample(Indicator<Num> ref, int barCount) {
+        return new SigmaIndicator(ref, barCount, SampleType.SAMPLE);
+    }
+
+    /**
+     * Creates a sigma indicator using population standard deviation.
+     *
+     * @param ref      the indicator
+     * @param barCount the time frame
+     * @return a population sigma indicator
+     * @since 0.22.4
+     */
+    public static SigmaIndicator ofPopulation(Indicator<Num> ref, int barCount) {
+        return new SigmaIndicator(ref, barCount, SampleType.POPULATION);
     }
 
     @Override
     protected Num calculate(int index) {
         // z-score = (ref - mean) / sd
         return (ref.getValue(index).minus(mean.getValue(index))).dividedBy(sd.getValue(index));
+    }
+
+    @Override
+    public int getCountOfUnstableBars() {
+        return Math.max(mean.getCountOfUnstableBars(), sd.getCountOfUnstableBars());
     }
 
     @Override

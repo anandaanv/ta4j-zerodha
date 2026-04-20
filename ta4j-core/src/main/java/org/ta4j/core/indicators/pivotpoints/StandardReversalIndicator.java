@@ -1,25 +1,5 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2014-2017 Marc de Verdelhan, 2017-2021 Ta4j Organization & respective
- * authors (see AUTHORS)
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+/*
+ * SPDX-License-Identifier: MIT
  */
 package org.ta4j.core.indicators.pivotpoints;
 
@@ -35,13 +15,14 @@ import org.ta4j.core.num.Num;
  * Pivot Reversal Indicator.
  *
  * @see <a href=
- *      "http://stockcharts.com/school/doku.php?id=chart_school:technical_indicators:pivot_points">
- *      http://stockcharts.com/school/doku.php?id=chart_school:technical_indicators:pivot_points</a>
+ *      "https://chartschool.stockcharts.com/table-of-contents/technical-indicators-and-overlays/technical-overlays/pivot-points">
+ *      https://chartschool.stockcharts.com/table-of-contents/technical-indicators-and-overlays/technical-overlays/pivot-points</a>
  */
 public class StandardReversalIndicator extends RecursiveCachedIndicator<Num> {
 
     private final PivotPointIndicator pivotPointIndicator;
     private final PivotLevel level;
+    private final Num two;
 
     /**
      * Constructor.
@@ -55,6 +36,7 @@ public class StandardReversalIndicator extends RecursiveCachedIndicator<Num> {
         super(pivotPointIndicator);
         this.pivotPointIndicator = pivotPointIndicator;
         this.level = level;
+        this.two = pivotPointIndicator.getBarSeries().numFactory().numOf(2);
     }
 
     @Override
@@ -79,7 +61,11 @@ public class StandardReversalIndicator extends RecursiveCachedIndicator<Num> {
         default:
             return NaN;
         }
+    }
 
+    @Override
+    public int getCountOfUnstableBars() {
+        return 0;
     }
 
     private Num calculateR3(List<Integer> barsOfPreviousPeriod, int index) {
@@ -87,10 +73,11 @@ public class StandardReversalIndicator extends RecursiveCachedIndicator<Num> {
         Num low = bar.getLowPrice();
         Num high = bar.getHighPrice();
         for (int i : barsOfPreviousPeriod) {
-            low = (getBarSeries().getBar(i).getLowPrice()).min(low);
-            high = (getBarSeries().getBar(i).getHighPrice()).max(high);
+            Bar iBar = getBarSeries().getBar(i);
+            low = iBar.getLowPrice().min(low);
+            high = iBar.getHighPrice().max(high);
         }
-        return high.plus(numOf(2).multipliedBy((pivotPointIndicator.getValue(index).minus(low))));
+        return high.plus(two.multipliedBy((pivotPointIndicator.getValue(index).minus(low))));
     }
 
     private Num calculateR2(List<Integer> barsOfPreviousPeriod, int index) {
@@ -98,8 +85,9 @@ public class StandardReversalIndicator extends RecursiveCachedIndicator<Num> {
         Num low = bar.getLowPrice();
         Num high = bar.getHighPrice();
         for (int i : barsOfPreviousPeriod) {
-            low = (getBarSeries().getBar(i).getLowPrice()).min(low);
-            high = (getBarSeries().getBar(i).getHighPrice()).max(high);
+            Bar iBar = getBarSeries().getBar(i);
+            low = iBar.getLowPrice().min(low);
+            high = iBar.getHighPrice().max(high);
         }
         return pivotPointIndicator.getValue(index).plus((high.minus(low)));
     }
@@ -109,7 +97,7 @@ public class StandardReversalIndicator extends RecursiveCachedIndicator<Num> {
         for (int i : barsOfPreviousPeriod) {
             low = (getBarSeries().getBar(i).getLowPrice()).min(low);
         }
-        return numOf(2).multipliedBy(pivotPointIndicator.getValue(index)).minus(low);
+        return two.multipliedBy(pivotPointIndicator.getValue(index)).minus(low);
     }
 
     private Num calculateS1(List<Integer> barsOfPreviousPeriod, int index) {
@@ -117,7 +105,7 @@ public class StandardReversalIndicator extends RecursiveCachedIndicator<Num> {
         for (int i : barsOfPreviousPeriod) {
             high = (getBarSeries().getBar(i).getHighPrice()).max(high);
         }
-        return numOf(2).multipliedBy(pivotPointIndicator.getValue(index)).minus(high);
+        return two.multipliedBy(pivotPointIndicator.getValue(index)).minus(high);
     }
 
     private Num calculateS2(List<Integer> barsOfPreviousPeriod, int index) {
@@ -125,8 +113,9 @@ public class StandardReversalIndicator extends RecursiveCachedIndicator<Num> {
         Num high = bar.getHighPrice();
         Num low = bar.getLowPrice();
         for (int i : barsOfPreviousPeriod) {
-            high = (getBarSeries().getBar(i).getHighPrice()).max(high);
-            low = (getBarSeries().getBar(i).getLowPrice()).min(low);
+            Bar iBar = getBarSeries().getBar(i);
+            high = iBar.getHighPrice().max(high);
+            low = iBar.getLowPrice().min(low);
         }
         return pivotPointIndicator.getValue(index).minus((high.minus(low)));
     }
@@ -136,9 +125,10 @@ public class StandardReversalIndicator extends RecursiveCachedIndicator<Num> {
         Num high = bar.getHighPrice();
         Num low = bar.getLowPrice();
         for (int i : barsOfPreviousPeriod) {
-            high = (getBarSeries().getBar(i).getHighPrice()).max(high);
-            low = (getBarSeries().getBar(i).getLowPrice()).min(low);
+            Bar iBar = getBarSeries().getBar(i);
+            high = iBar.getHighPrice().max(high);
+            low = iBar.getLowPrice().min(low);
         }
-        return low.minus(numOf(2).multipliedBy((high.minus(pivotPointIndicator.getValue(index)))));
+        return low.minus(two.multipliedBy((high.minus(pivotPointIndicator.getValue(index)))));
     }
 }

@@ -1,44 +1,31 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2014-2017 Marc de Verdelhan, 2017-2021 Ta4j Organization & respective
- * authors (see AUTHORS)
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+/*
+ * SPDX-License-Identifier: MIT
  */
 package org.ta4j.core;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.ta4j.core.TestUtils.assertNumEquals;
 import static org.ta4j.core.num.NaN.NaN;
 
+import java.time.Instant;
+import java.util.List;
 import org.junit.Before;
 import org.junit.Test;
 import org.ta4j.core.Trade.TradeType;
-import org.ta4j.core.cost.CostModel;
-import org.ta4j.core.cost.LinearBorrowingCostModel;
-import org.ta4j.core.cost.LinearTransactionCostModel;
-import org.ta4j.core.cost.ZeroCostModel;
-import org.ta4j.core.mocks.MockBarSeries;
+import org.ta4j.core.analysis.cost.CostModel;
+import org.ta4j.core.analysis.cost.LinearBorrowingCostModel;
+import org.ta4j.core.analysis.cost.LinearTransactionCostModel;
+import org.ta4j.core.analysis.cost.RecordedTradeCostModel;
+import org.ta4j.core.analysis.cost.ZeroCostModel;
+import org.ta4j.core.mocks.MockBarSeriesBuilder;
 import org.ta4j.core.num.DoubleNum;
+import org.ta4j.core.num.DoubleNumFactory;
 import org.ta4j.core.num.Num;
 
 public class PositionTest {
@@ -118,6 +105,60 @@ public class PositionTest {
         newPosition.operate(3);
         newPosition.operate(3);
         assertTrue(newPosition.isClosed());
+    }
+
+    @Test
+    public void operateWithPrebuiltTradesSupportsEntryAndExit() {
+        Position position = new Position(TradeType.BUY, RecordedTradeCostModel.INSTANCE, new ZeroCostModel());
+        Trade entry = Trade.fromFills(TradeType.BUY,
+                List.of(new TradeFill(1, DoubleNum.valueOf(100), DoubleNum.valueOf(1)),
+                        new TradeFill(2, DoubleNum.valueOf(101), DoubleNum.valueOf(1))),
+                RecordedTradeCostModel.INSTANCE);
+        Trade exit = Trade.fromFills(TradeType.SELL,
+                List.of(new TradeFill(3, DoubleNum.valueOf(110), DoubleNum.valueOf(2))),
+                RecordedTradeCostModel.INSTANCE);
+
+        position.operate(entry);
+        position.operate(exit);
+
+        assertEquals(entry, position.getEntry());
+        assertEquals(exit, position.getExit());
+        assertTrue(position.isClosed());
+    }
+
+    @Test
+    public void operateWithPrebuiltTradeRejectsMismatchedEntryType() {
+        Position position = new Position(TradeType.BUY);
+        Trade entry = Trade.sellAt(1, DoubleNum.valueOf(100), DoubleNum.valueOf(1));
+
+        assertThrows(IllegalArgumentException.class, () -> position.operate(entry));
+    }
+
+    @Test
+    public void operateWithPrebuiltTradeRejectsMismatchedExitType() {
+        Position position = new Position(TradeType.BUY);
+        position.operate(1, DoubleNum.valueOf(100), DoubleNum.valueOf(1));
+        Trade exit = Trade.buyAt(2, DoubleNum.valueOf(110), DoubleNum.valueOf(1));
+
+        assertThrows(IllegalArgumentException.class, () -> position.operate(exit));
+    }
+
+    @Test
+    public void operateWithPrebuiltTradeRejectsExitBeforeEntryIndex() {
+        Position position = new Position(TradeType.BUY);
+        position.operate(3, DoubleNum.valueOf(100), DoubleNum.valueOf(1));
+        Trade exit = Trade.sellAt(2, DoubleNum.valueOf(110), DoubleNum.valueOf(1));
+
+        assertThrows(IllegalStateException.class, () -> position.operate(exit));
+    }
+
+    @Test
+    public void operateWithPrebuiltTradeRejectsMismatchedCostModel() {
+        Position position = new Position(TradeType.BUY, transactionModel, holdingModel);
+        Trade entry = Trade.fromFills(TradeType.BUY,
+                List.of(new TradeFill(1, DoubleNum.valueOf(100), DoubleNum.valueOf(1))), new ZeroCostModel());
+
+        assertThrows(IllegalArgumentException.class, () -> position.operate(entry));
     }
 
     @Test(expected = IllegalArgumentException.class)
@@ -243,21 +284,66 @@ public class PositionTest {
 
     @Test
     public void testGetGrossReturnForLongPositionsUsingBarCloseOnNaN() {
-        MockBarSeries series = new MockBarSeries(DoubleNum::valueOf, 100, 105);
-        Position position = new Position(new Trade(0, TradeType.BUY, NaN, NaN), new Trade(1, TradeType.SELL, NaN, NaN));
+        var series = new MockBarSeriesBuilder().withNumFactory(DoubleNumFactory.getInstance())
+                .withData(100, 105)
+                .build();
+        Position position = new Position(new BaseTrade(0, TradeType.BUY, NaN, NaN),
+                new BaseTrade(1, TradeType.SELL, NaN, NaN));
         assertNumEquals(DoubleNum.valueOf(1.05), position.getGrossReturn(series));
     }
 
     @Test
     public void testGetGrossReturnForShortPositionsUsingBarCloseOnNaN() {
-        MockBarSeries series = new MockBarSeries(DoubleNum::valueOf, 100, 95);
-        Position position = new Position(new Trade(0, TradeType.SELL, NaN, NaN), new Trade(1, TradeType.BUY, NaN, NaN));
+        var series = new MockBarSeriesBuilder().withNumFactory(DoubleNumFactory.getInstance())
+                .withData(100, 95)
+                .build();
+        Position position = new Position(new BaseTrade(0, TradeType.SELL, NaN, NaN),
+                new BaseTrade(1, TradeType.BUY, NaN, NaN));
         assertNumEquals(DoubleNum.valueOf(1.05), position.getGrossReturn(series));
     }
 
     @Test
     public void testCostModelConsistencyTrue() {
         new Position(enter, exitSameType, transactionModel, holdingModel);
+    }
+
+    @Test
+    public void exposesTransactionCostModel() {
+        Position position = new Position(TradeType.BUY, transactionModel, holdingModel);
+
+        assertSame(transactionModel, position.getTransactionCostModel());
+    }
+
+    @Test
+    public void exposesHoldingCostModel() {
+        Position position = new Position(TradeType.BUY, transactionModel, holdingModel);
+
+        assertSame(holdingModel, position.getHoldingCostModel());
+    }
+
+    @Test
+    public void openViewAccessorsExposeEntryDerivedValues() {
+        DoubleNumFactory numFactory = DoubleNumFactory.getInstance();
+        Trade entry = new BaseTrade(5, Instant.EPOCH, numFactory.numOf(123), numFactory.numOf(2), numFactory.numOf(0.3),
+                ExecutionSide.BUY, "order-5", "corr-5");
+        Position position = new Position(entry, RecordedTradeCostModel.INSTANCE, new ZeroCostModel());
+
+        assertEquals(ExecutionSide.BUY, position.side());
+        assertNumEquals(numFactory.numOf(2), position.amount());
+        assertNumEquals(numFactory.numOf(123), position.averageEntryPrice());
+        assertNumEquals(numFactory.numOf(246), position.totalEntryCost());
+        assertNumEquals(numFactory.numOf(0.3), position.totalFees());
+    }
+
+    @Test
+    public void openViewAccessorsReturnNullWhenPositionHasNoEntry() {
+        Position position = new Position(TradeType.BUY);
+
+        assertNull(position.side());
+        assertNull(position.amount());
+        assertNull(position.averageEntryPrice());
+        assertNull(position.totalEntryCost());
+        assertNull(position.totalFees());
     }
 
     @Test(expected = IllegalArgumentException.class)

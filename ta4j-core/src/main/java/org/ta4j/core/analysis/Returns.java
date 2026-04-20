@@ -1,140 +1,270 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2014-2017 Marc de Verdelhan, 2017-2021 Ta4j Organization & respective
- * authors (see AUTHORS)
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+/*
+ * SPDX-License-Identifier: MIT
  */
 package org.ta4j.core.analysis;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-
+import java.util.Objects;
+import org.ta4j.core.Bar;
 import org.ta4j.core.BarSeries;
-import org.ta4j.core.Indicator;
+import org.ta4j.core.BaseTradingRecord;
 import org.ta4j.core.Position;
+import org.ta4j.core.Trade;
 import org.ta4j.core.TradingRecord;
+import org.ta4j.core.criteria.ReturnRepresentation;
+import org.ta4j.core.criteria.ReturnRepresentationPolicy;
 import org.ta4j.core.num.NaN;
 import org.ta4j.core.num.Num;
+import org.ta4j.core.num.NumFactory;
 
 /**
- * The return rates.
+ * Allows to compute the return rate of a price time-series.
+ * <p>
+ * Returns are calculated and formatted according to the specified
+ * {@link ReturnRepresentation}. Use {@link ReturnRepresentation#LOG} for log
+ * returns, or {@link ReturnRepresentation#DECIMAL},
+ * {@link ReturnRepresentation#MULTIPLICATIVE}, or
+ * {@link ReturnRepresentation#PERCENTAGE} for arithmetic returns in different
+ * formats.
+ * <p>
+ * The default representation (when not explicitly specified) is obtained from
+ * {@link ReturnRepresentationPolicy#getDefaultRepresentation()}.
  *
- * This class allows to compute the return rate of a price time-series
+ * @see ReturnRepresentation
+ * @see ReturnRepresentationPolicy
  */
-public class Returns implements Indicator<Num> {
+public class Returns implements PerformanceIndicator {
 
-    public enum ReturnType {
-        LOG {
-            @Override
-            public Num calculate(Num xNew, Num xOld) {
-                // r_i = ln(P_i/P_(i-1))
-                return (xNew.dividedBy(xOld)).log();
-            }
-        },
-        ARITHMETIC {
-            @Override
-            public Num calculate(Num xNew, Num xOld) {
-                // r_i = P_i/P_(i-1) - 1
-                return xNew.dividedBy(xOld).minus(one);
-            }
-        };
+    private final ReturnRepresentation representation;
+    private final EquityCurveMode equityCurveMode;
 
-        /**
-         * @return calculate a single return rate
-         */
-        public abstract Num calculate(Num xNew, Num xOld);
-    }
-
-    private final ReturnType type;
-
-    /**
-     * The bar series
-     */
+    /** The bar series. */
     private final BarSeries barSeries;
 
     /**
-     * The return rates
+     * The raw return rates (before formatting).
+     * <p>
+     * Stores log returns if {@code representation == LOG}, otherwise stores
+     * arithmetic returns in DECIMAL format (0-based, e.g., 0.12 for +12%). Used by
+     * {@link #getRawValues()} for statistical calculations.
      */
-    private List<Num> values;
+    private final List<Num> rawValues;
 
     /**
-     * Unit element for efficient arithmetic return computation
+     * The formatted return rates (according to the configured representation).
+     * <p>
+     * Values are formatted during calculation using
+     * {@link ReturnRepresentation#toRepresentationFromRateOfReturn(Num)} for
+     * arithmetic returns, or returned as-is for log returns.
      */
-    private static Num one;
+    private final List<Num> values;
+
+    private final List<Num> returnFactors;
 
     /**
      * Constructor.
+     *
+     * @param barSeries            the bar series
+     * @param tradingRecord        the trading record
+     * @param finalIndex           the index up to which the returns of open
+     *                             positions are considered
+     * @param representation       the return representation (determines both
+     *                             calculation method and output format)
+     * @param equityCurveMode      the calculation mode
+     * @param openPositionHandling how to handle open positions
+     * @since 0.22.2
+     */
+    public Returns(BarSeries barSeries, TradingRecord tradingRecord, int finalIndex,
+            ReturnRepresentation representation, EquityCurveMode equityCurveMode,
+            OpenPositionHandling openPositionHandling) {
+        this.barSeries = Objects.requireNonNull(barSeries);
+        this.representation = Objects.requireNonNull(representation);
+        this.equityCurveMode = Objects.requireNonNull(equityCurveMode);
+        int seriesEnd = barSeries.getEndIndex();
+        int size = Math.max(seriesEnd + 1, 0);
+        Num one = barSeries.numFactory().one();
+        Num zero = barSeries.numFactory().zero();
+        Num initial = representation == ReturnRepresentation.LOG ? zero : one;
+        returnFactors = new ArrayList<>(Collections.nCopies(size, initial));
+        rawValues = new ArrayList<>(Collections.nCopies(size, zero));
+        values = new ArrayList<>(Collections.nCopies(size, zero));
+        calculate(Objects.requireNonNull(tradingRecord), finalIndex, Objects.requireNonNull(openPositionHandling));
+        buildReturns();
+    }
+
+    /**
+     * Constructor with default representation from
+     * {@link ReturnRepresentationPolicy#getDefaultRepresentation()}.
      *
      * @param barSeries the bar series
      * @param position  a single position
      */
-    public Returns(BarSeries barSeries, Position position, ReturnType type) {
-        one = barSeries.numOf(1);
-        this.barSeries = barSeries;
-        this.type = type;
-        // at index 0, there is no return
-        values = new ArrayList<>(Collections.singletonList(NaN.NaN));
-        calculate(position);
+    public Returns(BarSeries barSeries, Position position) {
+        this(barSeries, position, ReturnRepresentationPolicy.getDefaultRepresentation(),
+                EquityCurveMode.MARK_TO_MARKET);
+    }
 
-        fillToTheEnd();
+    /**
+     * Constructor with default representation from
+     * {@link ReturnRepresentationPolicy#getDefaultRepresentation()}.
+     *
+     * @param barSeries       the bar series
+     * @param position        a single position
+     * @param equityCurveMode the calculation mode
+     * @since 0.22.2
+     */
+    public Returns(BarSeries barSeries, Position position, EquityCurveMode equityCurveMode) {
+        this(barSeries, position, ReturnRepresentationPolicy.getDefaultRepresentation(), equityCurveMode);
     }
 
     /**
      * Constructor.
      *
+     * @param barSeries      the bar series
+     * @param position       a single position
+     * @param representation the return representation (determines both calculation
+     *                       method and output format)
+     */
+    public Returns(BarSeries barSeries, Position position, ReturnRepresentation representation) {
+        this(barSeries, position, representation, EquityCurveMode.MARK_TO_MARKET);
+    }
+
+    /**
+     * Constructor.
+     *
+     * @param barSeries       the bar series
+     * @param position        a single position
+     * @param representation  the return representation (determines both calculation
+     *                        method and output format)
+     * @param equityCurveMode the calculation mode
+     * @since 0.22.2
+     */
+    public Returns(BarSeries barSeries, Position position, ReturnRepresentation representation,
+            EquityCurveMode equityCurveMode) {
+        this(barSeries, new BaseTradingRecord(position), representation, equityCurveMode);
+    }
+
+    /**
+     * Constructor.
+     *
+     * @param barSeries       the bar series
+     * @param tradingRecord   the trading record
+     * @param representation  the return representation (determines both calculation
+     *                        method and output format)
+     * @param equityCurveMode the calculation mode
+     * @since 0.22.2
+     */
+    public Returns(BarSeries barSeries, TradingRecord tradingRecord, ReturnRepresentation representation,
+            EquityCurveMode equityCurveMode) {
+        this(barSeries, tradingRecord, tradingRecord.getEndIndex(barSeries), representation, equityCurveMode,
+                OpenPositionHandling.MARK_TO_MARKET);
+    }
+
+    /**
+     * Constructor with default representation from
+     * {@link ReturnRepresentationPolicy#getDefaultRepresentation()}.
+     *
      * @param barSeries     the bar series
      * @param tradingRecord the trading record
      */
-    public Returns(BarSeries barSeries, TradingRecord tradingRecord, ReturnType type) {
-        one = barSeries.numOf(1);
-        this.barSeries = barSeries;
-        this.type = type;
-        // at index 0, there is no return
-        values = new ArrayList<>(Collections.singletonList(NaN.NaN));
-        calculate(tradingRecord);
-
-        fillToTheEnd();
+    public Returns(BarSeries barSeries, TradingRecord tradingRecord) {
+        this(barSeries, tradingRecord, ReturnRepresentationPolicy.getDefaultRepresentation(),
+                EquityCurveMode.MARK_TO_MARKET);
     }
 
+    /**
+     * Constructor with default representation from
+     * {@link ReturnRepresentationPolicy#getDefaultRepresentation()}.
+     *
+     * @param barSeries       the bar series
+     * @param tradingRecord   the trading record
+     * @param equityCurveMode the calculation mode
+     * @since 0.22.2
+     */
+    public Returns(BarSeries barSeries, TradingRecord tradingRecord, EquityCurveMode equityCurveMode) {
+        this(barSeries, tradingRecord, ReturnRepresentationPolicy.getDefaultRepresentation(), equityCurveMode);
+    }
+
+    /**
+     * Constructor.
+     *
+     * @param barSeries      the bar series
+     * @param tradingRecord  the trading record
+     * @param representation the return representation (determines both calculation
+     *                       method and output format)
+     */
+    public Returns(BarSeries barSeries, TradingRecord tradingRecord, ReturnRepresentation representation) {
+        this(barSeries, tradingRecord, representation, EquityCurveMode.MARK_TO_MARKET);
+    }
+
+    /**
+     * Constructor.
+     *
+     * @param barSeries            the bar series
+     * @param tradingRecord        the trading record
+     * @param representation       the return representation (determines both
+     *                             calculation method and output format)
+     * @param openPositionHandling how to handle open positions
+     * @since 0.22.2
+     */
+    public Returns(BarSeries barSeries, TradingRecord tradingRecord, ReturnRepresentation representation,
+            OpenPositionHandling openPositionHandling) {
+        this(barSeries, tradingRecord, tradingRecord.getEndIndex(barSeries), representation,
+                EquityCurveMode.MARK_TO_MARKET, openPositionHandling);
+    }
+
+    /**
+     * Constructor.
+     *
+     * @param barSeries            the bar series
+     * @param tradingRecord        the trading record
+     * @param representation       the return representation (determines both
+     *                             calculation method and output format)
+     * @param equityCurveMode      the calculation mode
+     * @param openPositionHandling how to handle open positions
+     * @since 0.22.2
+     */
+    public Returns(BarSeries barSeries, TradingRecord tradingRecord, ReturnRepresentation representation,
+            EquityCurveMode equityCurveMode, OpenPositionHandling openPositionHandling) {
+        this(barSeries, tradingRecord, tradingRecord.getEndIndex(barSeries), representation, equityCurveMode,
+                openPositionHandling);
+    }
+
+    /**
+     * @return the return rates (formatted according to the configured
+     *         representation)
+     */
     public List<Num> getValues() {
         return values;
     }
 
     /**
      * @param index the bar index
-     * @return the return rate value at the index-th position
+     * @return the return rate value at the index-th position (formatted according
+     *         to the configured representation)
      */
     @Override
     public Num getValue(int index) {
         return values.get(index);
     }
 
-    @Override
-    public BarSeries getBarSeries() {
-        return barSeries;
+    /**
+     * @return the raw return rates (before formatting)
+     */
+    public List<Num> getRawValues() {
+        return rawValues;
     }
 
     @Override
-    public Num numOf(Number number) {
-        return barSeries.numOf(number);
+    public int getCountOfUnstableBars() {
+        return 0;
+    }
+
+    @Override
+    public BarSeries getBarSeries() {
+        return barSeries;
     }
 
     /**
@@ -144,84 +274,125 @@ public class Returns implements Indicator<Num> {
         return barSeries.getBarCount() - 1;
     }
 
-    public void calculate(Position position) {
-        calculate(position, barSeries.getEndIndex());
-    }
-
     /**
-     * Calculates the cash flow for a single position (including accrued cashflow
-     * for open positions).
+     * Calculates the returns for a single position.
      *
      * @param position   a single position
-     * @param finalIndex index up until cash flow of open positions is considered
+     * @param finalIndex the index up to which the returns of open positions are
+     *                   considered
+     * @since 0.22.2
      */
-    public void calculate(Position position, int finalIndex) {
-        boolean isLongTrade = position.getEntry().isBuy();
-        Num minusOne = barSeries.numOf(-1);
-        int endIndex = CashFlow.determineEndIndex(position, finalIndex, barSeries.getEndIndex());
-        final int entryIndex = position.getEntry().getIndex();
-        int begin = entryIndex + 1;
-        if (begin > values.size()) {
-            values.addAll(Collections.nCopies(begin - values.size(), barSeries.numOf(0)));
+    @Override
+    public void calculatePosition(Position position, int finalIndex) {
+        Trade entry = position.getEntry();
+        if (entry == null) {
+            return;
+        }
+        int entryIndex = entry.getIndex();
+        int seriesEnd = barSeries.getEndIndex();
+        if (entryIndex > finalIndex || entryIndex > seriesEnd) {
+            return;
+        }
+        int endIndex = determineEndIndex(position, finalIndex, seriesEnd);
+        int seriesBegin = barSeries.getBeginIndex();
+        if (endIndex < seriesBegin) {
+            return;
         }
 
-        int startingIndex = Math.max(begin, 1);
-        int nPeriods = endIndex - entryIndex;
-        Num holdingCost = position.getHoldingCost(endIndex);
-        Num avgCost = holdingCost.dividedBy(holdingCost.numOf(nPeriods));
+        NumFactory numFactory = barSeries.numFactory();
+        Num minusOne = numFactory.minusOne();
+        boolean isLongTrade = entry.isBuy();
+        int start = Math.max(entryIndex + 1, seriesBegin + 1);
 
-        // returns are per period (iterative). Base price needs to be updated
-        // accordingly
-        Num lastPrice = position.getEntry().getNetPrice();
-        for (int i = startingIndex; i < endIndex; i++) {
-            Num intermediateNetPrice = CashFlow.addCost(barSeries.getBar(i).getClosePrice(), avgCost, isLongTrade);
-            Num assetReturn = type.calculate(intermediateNetPrice, lastPrice);
-
-            Num strategyReturn;
-            if (position.getEntry().isBuy()) {
-                strategyReturn = assetReturn;
-            } else {
-                strategyReturn = assetReturn.multipliedBy(minusOne);
+        if (equityCurveMode == EquityCurveMode.MARK_TO_MARKET) {
+            Num avgCost = averageHoldingCostPerPeriod(position, endIndex, numFactory);
+            Num lastPrice = entry.getNetPrice();
+            for (int i = start; i < endIndex; i++) {
+                Bar bar = barSeries.getBar(i);
+                Num intermediateNetPrice = addCost(bar.getClosePrice(), avgCost, isLongTrade);
+                Num rawReturn = calculateReturn(intermediateNetPrice, lastPrice);
+                Num strategyReturn = isLongTrade ? rawReturn : rawReturn.multipliedBy(minusOne);
+                combineReturnAtIndex(i, strategyReturn);
+                lastPrice = intermediateNetPrice;
             }
-            values.add(strategyReturn);
-            // update base price
-            lastPrice = barSeries.getBar(i).getClosePrice();
+            Num exitPrice = resolveExitPrice(position, endIndex, barSeries);
+            Num rawReturn = calculateReturn(addCost(exitPrice, avgCost, isLongTrade), lastPrice);
+            Num strategyReturn = isLongTrade ? rawReturn : rawReturn.multipliedBy(minusOne);
+            combineReturnAtIndex(endIndex, strategyReturn);
+            return;
         }
 
-        // add net return at exit position
-        Num exitPrice;
-        if (position.getExit() != null) {
-            exitPrice = position.getExit().getNetPrice();
-        } else {
-            exitPrice = barSeries.getBar(endIndex).getClosePrice();
+        Trade exit = position.getExit();
+        if (exit != null && endIndex >= exit.getIndex()) {
+            Num holdingCost = position.getHoldingCost(endIndex);
+            Num netExit = addCost(exit.getNetPrice(), holdingCost, isLongTrade);
+            Num rawReturn = calculateReturn(netExit, entry.getNetPrice());
+            Num strategyReturn = isLongTrade ? rawReturn : rawReturn.multipliedBy(minusOne);
+            combineReturnAtIndex(exit.getIndex(), strategyReturn);
         }
-
-        Num strategyReturn;
-        Num assetReturn = type.calculate(CashFlow.addCost(exitPrice, avgCost, isLongTrade), lastPrice);
-        if (position.getEntry().isBuy()) {
-            strategyReturn = assetReturn;
-        } else {
-            strategyReturn = assetReturn.multipliedBy(minusOne);
-        }
-        values.add(strategyReturn);
     }
 
     /**
-     * Calculates the returns for a trading record.
+     * @return the equity curve mode used for this return series
+     * @since 0.22.2
+     */
+    @Override
+    public EquityCurveMode getEquityCurveMode() {
+        return equityCurveMode;
+    }
+
+    /**
+     * Calculates the raw return between two prices.
      *
-     * @param tradingRecord the trading record
+     * @param xNew the new price
+     * @param xOld the old price
+     * @return the raw return (log return if representation is LOG, arithmetic
+     *         return otherwise)
      */
-    private void calculate(TradingRecord tradingRecord) {
-        // For each position...
-        tradingRecord.getPositions().forEach(this::calculate);
+    private Num calculateReturn(Num xNew, Num xOld) {
+        if (representation == ReturnRepresentation.LOG) {
+            // r_i = ln(P_i/P_(i-1))
+            return (xNew.dividedBy(xOld)).log();
+        }
+        // r_i = P_i/P_(i-1) - 1 (arithmetic return, which is DECIMAL format)
+        Num one = barSeries.numFactory().one();
+        return xNew.dividedBy(xOld).minus(one);
     }
 
-    /**
-     * Fills with zeroes until the end of the series.
-     */
-    private void fillToTheEnd() {
-        if (barSeries.getEndIndex() >= values.size()) {
-            values.addAll(Collections.nCopies(barSeries.getEndIndex() - values.size() + 1, barSeries.numOf(0)));
+    private Num toFactor(Num strategyReturn) {
+        Num one = barSeries.numFactory().one();
+        return strategyReturn.plus(one);
+    }
+
+    private void combineReturnAtIndex(int index, Num strategyReturn) {
+        if (index < 0 || index >= returnFactors.size()) {
+            return;
+        }
+        if (representation == ReturnRepresentation.LOG) {
+            returnFactors.set(index, returnFactors.get(index).plus(strategyReturn));
+        } else {
+            returnFactors.set(index, returnFactors.get(index).multipliedBy(toFactor(strategyReturn)));
+        }
+    }
+
+    private void buildReturns() {
+        if (rawValues.isEmpty()) {
+            return;
+        }
+        rawValues.set(0, NaN.NaN);
+        values.set(0, NaN.NaN);
+        Num one = barSeries.numFactory().one();
+        for (int i = 1; i < rawValues.size(); i++) {
+            if (representation == ReturnRepresentation.LOG) {
+                Num logReturn = returnFactors.get(i);
+                rawValues.set(i, logReturn);
+                values.set(i, logReturn);
+            } else {
+                Num factor = returnFactors.get(i);
+                Num rawReturn = factor.minus(one);
+                rawValues.set(i, rawReturn);
+                values.set(i, representation.toRepresentationFromRateOfReturn(rawReturn));
+            }
         }
     }
 }

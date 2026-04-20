@@ -2,9 +2,13 @@
 .project
 .settings/
 .idea/
+.vscode/
 .svn/
+.agents/
+.codex/
 nb-configuration.xml
 nbactions.xml
+*.code-workspace
 *.iml
 .DS_Store
 log/
@@ -20,6 +24,12 @@ build/
 # Log file
 *.log
 
+# Images
+*.jpg
+# Exception: allow documentation images in ta4j-examples
+!ta4j-examples/docs/img/*.jpg
+!ta4j-examples/docs/img/*.png
+
 # BlueJ files
 *.ctxt
 
@@ -33,13 +43,18 @@ build/
 *.rar
 
 # temp files #
+temp/
 ta4j-examples/indicators.csv
 ta4j-examples/build/
 ta4j-core/build/
 release.properties
+
+# local TODO notes (detailed architecture docs live in ta4j-wiki/architecture/)
+todo/
 
 # Mobile Tools for Java (J2ME)
 .mtj.tmp/
 
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
+/html/

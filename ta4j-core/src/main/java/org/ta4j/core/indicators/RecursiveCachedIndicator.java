@@ -1,53 +1,55 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2014-2017 Marc de Verdelhan, 2017-2021 Ta4j Organization & respective
- * authors (see AUTHORS)
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+/*
+ * SPDX-License-Identifier: MIT
  */
 package org.ta4j.core.indicators;
 
 import org.ta4j.core.BarSeries;
 import org.ta4j.core.Indicator;
 
+import java.util.IdentityHashMap;
+import java.util.Map;
+
 /**
  * Recursive cached {@link Indicator indicator}.
  *
- * Recursive indicators should extend this class.<br>
- * This class is only here to avoid (OK, to postpone) the StackOverflowError
- * that may be thrown on the first getValue(int) call of a recursive indicator.
- * Concretely when an index value is asked, if the last cached value is too
- * old/far, the computation of all the values between the last cached and the
- * asked one is executed iteratively.
+ * <p>
+ * Recursive indicators should extend this class.
+ *
+ * <p>
+ * This class prevents StackOverflowError that may be thrown on the first
+ * getValue(int) call of a recursive indicator. When an index value is asked and
+ * the last cached value is too old/far, the computation of all the values
+ * between the last cached and the asked one is executed iteratively using the
+ * {@link CachedBuffer#prefillUntil} method.
+ *
+ * <h2>Thread Safety</h2>
+ * <p>
+ * This class is thread-safe. Unlike previous versions, the
+ * {@link #getValue(int)} method is no longer {@code synchronized}. Thread
+ * safety is achieved through the underlying {@link CachedBuffer}'s locking
+ * mechanism. Code that relied on external synchronization using indicator
+ * instances must be updated.
  */
 public abstract class RecursiveCachedIndicator<T> extends CachedIndicator<T> {
 
     /**
-     * The recursion threshold for which an iterative calculation is executed. TODO
-     * Should be variable (depending on the sub-indicators used in this indicator)
+     * The recursion threshold for which an iterative calculation is executed.
+     * <p>
+     * This threshold determines when to switch from recursive to iterative
+     * prefilling to avoid stack overflow.
      */
     private static final int RECURSION_THRESHOLD = 100;
 
     /**
+     * Guards against recursively re-entering prefill for the same indicator.
+     */
+    private static final ThreadLocal<Map<RecursiveCachedIndicator<?>, Integer>> PREFILL_DEPTH = ThreadLocal
+            .withInitial(IdentityHashMap::new);
+
+    /**
      * Constructor.
      *
-     * @param series the related bar series
+     * @param series the bar series
      */
     protected RecursiveCachedIndicator(BarSeries series) {
         super(series);
@@ -56,7 +58,7 @@ public abstract class RecursiveCachedIndicator<T> extends CachedIndicator<T> {
     /**
      * Constructor.
      *
-     * @param indicator a related indicator (with a bar series)
+     * @param indicator the indicator (with its bar series)
      */
     protected RecursiveCachedIndicator(Indicator<?> indicator) {
         this(indicator.getBarSeries());
@@ -71,16 +73,73 @@ public abstract class RecursiveCachedIndicator<T> extends CachedIndicator<T> {
                 // We are not after the end of the series
                 final int removedBarsCount = series.getRemovedBarsCount();
                 int startIndex = Math.max(removedBarsCount, highestResultIndex);
+                if (startIndex < 0) {
+                    startIndex = Math.max(0, removedBarsCount);
+                }
                 if (index - startIndex > RECURSION_THRESHOLD) {
-                    // Too many uncalculated values; the risk for a StackOverflowError becomes high.
-                    // Calculating the previous values iteratively
-                    for (int prevIdx = startIndex; prevIdx < index; prevIdx++) {
-                        super.getValue(prevIdx);
-                    }
+                    prefillMissingValues(startIndex, index);
                 }
             }
         }
 
         return super.getValue(index);
+    }
+
+    /**
+     * Iteratively prefills missing values to avoid stack overflow.
+     *
+     * <p>
+     * Uses the {@link CachedBuffer#prefillUntil} method to compute values
+     * iteratively under a single write lock, avoiding the overhead of re-entering
+     * locks and series lookups for each index.
+     *
+     * @param startIndex  the index to start filling from
+     * @param targetIndex the target index (exclusive)
+     */
+    private void prefillMissingValues(int startIndex, int targetIndex) {
+        Map<RecursiveCachedIndicator<?>, Integer> depthByIndicator = PREFILL_DEPTH.get();
+        Integer depth = depthByIndicator.get(this);
+        if (depth != null && depth > 0) {
+            // Already in a prefill for this indicator on this thread; skip to avoid
+            // infinite recursion
+            return;
+        }
+
+        // Increment depth first, then wrap ALL subsequent operations in try-finally
+        // to guarantee cleanup even if prefillUntil throws an exception
+        int newDepth = (depth == null ? 0 : depth) + 1;
+        depthByIndicator.put(this, newDepth);
+        try {
+            // Use the cache's prefillUntil to compute values iteratively
+            // under a single write lock
+            getCache().prefillUntil(startIndex, targetIndex, this::calculate);
+
+            // Ensure highestResultIndex reflects the cache without regressing if
+            // another thread advanced it further (e.g., last-bar caching).
+            updateHighestResultIndex(getCache().getHighestResultIndex());
+        } finally {
+            // Cleanup: decrement depth and remove if zero
+            cleanupPrefillDepth(depthByIndicator);
+        }
+    }
+
+    /**
+     * Cleans up the prefill depth tracking for this indicator on the current
+     * thread. Removes the ThreadLocal value entirely when no indicators have active
+     * prefills.
+     */
+    private void cleanupPrefillDepth(Map<RecursiveCachedIndicator<?>, Integer> depthByIndicator) {
+        Integer currentDepth = depthByIndicator.get(this);
+        if (currentDepth == null || currentDepth <= 1) {
+            depthByIndicator.remove(this);
+        } else {
+            depthByIndicator.put(this, currentDepth - 1);
+        }
+
+        // Clean up ThreadLocal entirely when no indicators have active prefills
+        // to prevent memory leaks in long-lived threads
+        if (depthByIndicator.isEmpty()) {
+            PREFILL_DEPTH.remove();
+        }
     }
 }

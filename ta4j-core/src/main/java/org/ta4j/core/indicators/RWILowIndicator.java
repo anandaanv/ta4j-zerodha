@@ -1,25 +1,5 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2014-2017 Marc de Verdelhan, 2017-2021 Ta4j Organization & respective
- * authors (see AUTHORS)
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+/*
+ * SPDX-License-Identifier: MIT
  */
 package org.ta4j.core.indicators;
 
@@ -41,7 +21,7 @@ public class RWILowIndicator extends CachedIndicator<Num> {
     /**
      * Constructor.
      *
-     * @param series   the series
+     * @param series   the bar series
      * @param barCount the time frame
      */
     public RWILowIndicator(BarSeries series, int barCount) {
@@ -55,7 +35,7 @@ public class RWILowIndicator extends CachedIndicator<Num> {
             return NaN.NaN;
         }
 
-        Num minRWIL = numOf(0);
+        Num minRWIL = getBarSeries().numFactory().zero();
         for (int n = 2; n <= barCount; n++) {
             minRWIL = minRWIL.max(calcRWIHFor(index, n));
         }
@@ -63,12 +43,17 @@ public class RWILowIndicator extends CachedIndicator<Num> {
         return minRWIL;
     }
 
+    @Override
+    public int getCountOfUnstableBars() {
+        return barCount;
+    }
+
     private Num calcRWIHFor(final int index, final int n) {
         BarSeries series = getBarSeries();
         Num low = series.getBar(index).getLowPrice();
         Num highN = series.getBar(index + 1 - n).getHighPrice();
         Num atrN = new ATRIndicator(series, n).getValue(index);
-        Num sqrtN = numOf(n).sqrt();
+        Num sqrtN = series.numFactory().numOf(n).sqrt();
 
         return highN.minus(low).dividedBy(atrN.multipliedBy(sqrtN));
     }

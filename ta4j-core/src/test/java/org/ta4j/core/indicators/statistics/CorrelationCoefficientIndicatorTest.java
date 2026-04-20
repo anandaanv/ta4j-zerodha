@@ -1,78 +1,59 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2014-2017 Marc de Verdelhan, 2017-2021 Ta4j Organization & respective
- * authors (see AUTHORS)
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+/*
+ * SPDX-License-Identifier: MIT
  */
 package org.ta4j.core.indicators.statistics;
 
 import static org.junit.Assert.assertTrue;
 import static org.ta4j.core.TestUtils.assertNumEquals;
 
-import java.time.ZonedDateTime;
-import java.util.function.Function;
+import java.time.Instant;
 
 import org.junit.Before;
 import org.junit.Test;
 import org.ta4j.core.BarSeries;
-import org.ta4j.core.BaseBarSeriesBuilder;
 import org.ta4j.core.Indicator;
 import org.ta4j.core.indicators.AbstractIndicatorTest;
 import org.ta4j.core.indicators.helpers.ClosePriceIndicator;
 import org.ta4j.core.indicators.helpers.VolumeIndicator;
-import org.ta4j.core.mocks.MockBar;
+import org.ta4j.core.mocks.MockBarSeriesBuilder;
 import org.ta4j.core.num.Num;
+import org.ta4j.core.num.NumFactory;
 
 public class CorrelationCoefficientIndicatorTest extends AbstractIndicatorTest<Indicator<Num>, Num> {
 
     private Indicator<Num> close, volume;
 
-    public CorrelationCoefficientIndicatorTest(Function<Number, Num> numFunction) {
-        super(numFunction);
+    public CorrelationCoefficientIndicatorTest(NumFactory numFactory) {
+        super(numFactory);
     }
 
     @Before
     public void setUp() {
-        BarSeries data = new BaseBarSeriesBuilder().withNumTypeOf(numFunction).build();
         int i = 20;
+        var now = Instant.now();
+        BarSeries data = new MockBarSeriesBuilder().withNumFactory(numFactory).build();
+
         // close, volume
-        data.addBar(new MockBar(ZonedDateTime.now().minusSeconds(i--), 6, 100, numFunction));
-        data.addBar(new MockBar(ZonedDateTime.now().minusSeconds(i--), 7, 105, numFunction));
-        data.addBar(new MockBar(ZonedDateTime.now().minusSeconds(i--), 9, 130, numFunction));
-        data.addBar(new MockBar(ZonedDateTime.now().minusSeconds(i--), 12, 160, numFunction));
-        data.addBar(new MockBar(ZonedDateTime.now().minusSeconds(i--), 11, 150, numFunction));
-        data.addBar(new MockBar(ZonedDateTime.now().minusSeconds(i--), 10, 130, numFunction));
-        data.addBar(new MockBar(ZonedDateTime.now().minusSeconds(i--), 11, 95, numFunction));
-        data.addBar(new MockBar(ZonedDateTime.now().minusSeconds(i--), 13, 120, numFunction));
-        data.addBar(new MockBar(ZonedDateTime.now().minusSeconds(i--), 15, 180, numFunction));
-        data.addBar(new MockBar(ZonedDateTime.now().minusSeconds(i--), 12, 160, numFunction));
-        data.addBar(new MockBar(ZonedDateTime.now().minusSeconds(i--), 8, 150, numFunction));
-        data.addBar(new MockBar(ZonedDateTime.now().minusSeconds(i--), 4, 200, numFunction));
-        data.addBar(new MockBar(ZonedDateTime.now().minusSeconds(i--), 3, 150, numFunction));
-        data.addBar(new MockBar(ZonedDateTime.now().minusSeconds(i--), 4, 85, numFunction));
-        data.addBar(new MockBar(ZonedDateTime.now().minusSeconds(i--), 3, 70, numFunction));
-        data.addBar(new MockBar(ZonedDateTime.now().minusSeconds(i--), 5, 90, numFunction));
-        data.addBar(new MockBar(ZonedDateTime.now().minusSeconds(i--), 8, 100, numFunction));
-        data.addBar(new MockBar(ZonedDateTime.now().minusSeconds(i--), 9, 95, numFunction));
-        data.addBar(new MockBar(ZonedDateTime.now().minusSeconds(i--), 11, 110, numFunction));
-        data.addBar(new MockBar(ZonedDateTime.now().minusSeconds(i), 10, 95, numFunction));
+        data.barBuilder().endTime(now.minusSeconds(i--)).closePrice(6).volume(100).add();
+        data.barBuilder().endTime(now.minusSeconds(i--)).closePrice(7).volume(105).add();
+        data.barBuilder().endTime(now.minusSeconds(i--)).closePrice(9).volume(130).add();
+        data.barBuilder().endTime(now.minusSeconds(i--)).closePrice(12).volume(160).add();
+        data.barBuilder().endTime(now.minusSeconds(i--)).closePrice(11).volume(150).add();
+        data.barBuilder().endTime(now.minusSeconds(i--)).closePrice(10).volume(130).add();
+        data.barBuilder().endTime(now.minusSeconds(i--)).closePrice(11).volume(95).add();
+        data.barBuilder().endTime(now.minusSeconds(i--)).closePrice(13).volume(120).add();
+        data.barBuilder().endTime(now.minusSeconds(i--)).closePrice(15).volume(180).add();
+        data.barBuilder().endTime(now.minusSeconds(i--)).closePrice(12).volume(160).add();
+        data.barBuilder().endTime(now.minusSeconds(i--)).closePrice(8).volume(150).add();
+        data.barBuilder().endTime(now.minusSeconds(i--)).closePrice(4).volume(200).add();
+        data.barBuilder().endTime(now.minusSeconds(i--)).closePrice(3).volume(150).add();
+        data.barBuilder().endTime(now.minusSeconds(i--)).closePrice(4).volume(85).add();
+        data.barBuilder().endTime(now.minusSeconds(i--)).closePrice(3).volume(70).add();
+        data.barBuilder().endTime(now.minusSeconds(i--)).closePrice(5).volume(90).add();
+        data.barBuilder().endTime(now.minusSeconds(i--)).closePrice(8).volume(100).add();
+        data.barBuilder().endTime(now.minusSeconds(i--)).closePrice(9).volume(95).add();
+        data.barBuilder().endTime(now.minusSeconds(i--)).closePrice(11).volume(110).add();
+        data.barBuilder().endTime(now.minusSeconds(i)).closePrice(10).volume(95).add();
 
         close = new ClosePriceIndicator(data);
         volume = new VolumeIndicator(data, 2);
@@ -80,7 +61,7 @@ public class CorrelationCoefficientIndicatorTest extends AbstractIndicatorTest<I
 
     @Test
     public void usingBarCount5UsingClosePriceAndVolume() {
-        CorrelationCoefficientIndicator coef = new CorrelationCoefficientIndicator(close, volume, 5);
+        var coef = new CorrelationCoefficientIndicator(close, volume, 5);
 
         assertTrue(coef.getValue(0).isNaN());
 
@@ -103,5 +84,30 @@ public class CorrelationCoefficientIndicatorTest extends AbstractIndicatorTest<I
         assertNumEquals(0.1713, coef.getValue(17));
         assertNumEquals(0.9841, coef.getValue(18));
         assertNumEquals(0.9799, coef.getValue(19));
+    }
+
+    @Test
+    public void sampleAndPopulationCorrelationMatchWhenCovarianceIsScaledConsistently() {
+        var population = CorrelationCoefficientIndicator.ofPopulation(close, volume, 5);
+        var sample = CorrelationCoefficientIndicator.ofSample(close, volume, 5);
+
+        assertTrue(population.getValue(0).isNaN());
+        assertTrue(sample.getValue(0).isNaN());
+        for (int i = 1; i <= 19; i++) {
+            assertNumEquals(population.getValue(i), sample.getValue(i), 1.0e-12);
+        }
+    }
+
+    @Test
+    public void nonPositiveBarCountFallsBackToOne() {
+        var populationWithOne = CorrelationCoefficientIndicator.ofPopulation(close, volume, 1);
+        var populationWithZero = CorrelationCoefficientIndicator.ofPopulation(close, volume, 0);
+        var sampleWithOne = CorrelationCoefficientIndicator.ofSample(close, volume, 1);
+        var sampleWithNegative = CorrelationCoefficientIndicator.ofSample(close, volume, -5);
+
+        for (int i = 0; i <= 19; i++) {
+            assertNumEquals(populationWithOne.getValue(i), populationWithZero.getValue(i), 1.0e-12);
+            assertNumEquals(sampleWithOne.getValue(i), sampleWithNegative.getValue(i), 1.0e-12);
+        }
     }
 }

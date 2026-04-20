@@ -1,87 +1,126 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2014-2017 Marc de Verdelhan, 2017-2021 Ta4j Organization & respective
- * authors (see AUTHORS)
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+/*
+ * SPDX-License-Identifier: MIT
  */
 package org.ta4j.core.rules;
 
+import org.ta4j.core.BarSeries;
+import org.ta4j.core.Indicator;
 import org.ta4j.core.Position;
 import org.ta4j.core.TradingRecord;
-import org.ta4j.core.indicators.helpers.ClosePriceIndicator;
 import org.ta4j.core.num.Num;
 
 /**
  * A stop-loss rule.
  *
+ * <p>
  * Satisfied when the close price reaches the loss threshold.
+ *
+ * <p>
+ * This rule uses the {@code tradingRecord}.
  */
-public class StopLossRule extends AbstractRule {
+public class StopLossRule extends AbstractRule implements StopLossPriceModel {
 
-    /**
-     * Constant value for 100
-     */
-    private final Num HUNDRED;
+    /** The reference price indicator. */
+    private final Indicator<Num> priceIndicator;
 
-    /**
-     * The close price indicator
-     */
-    private final ClosePriceIndicator closePrice;
-
-    /**
-     * The loss percentage
-     */
-    private Num lossPercentage;
+    /** The loss percentage. */
+    private final Num lossPercentage;
 
     /**
      * Constructor.
      *
-     * @param closePrice     the close price indicator
+     * @param priceIndicator the price indicator
      * @param lossPercentage the loss percentage
      */
-    public StopLossRule(ClosePriceIndicator closePrice, Number lossPercentage) {
-        this(closePrice, closePrice.numOf(lossPercentage));
+    public StopLossRule(Indicator<Num> priceIndicator, Number lossPercentage) {
+        this(priceIndicator, priceIndicator.getBarSeries().numFactory().numOf(lossPercentage));
     }
 
     /**
      * Constructor.
      *
-     * @param closePrice     the close price indicator
+     * @param priceIndicator the price indicator
      * @param lossPercentage the loss percentage
      */
-    public StopLossRule(ClosePriceIndicator closePrice, Num lossPercentage) {
-        this.closePrice = closePrice;
+    public StopLossRule(Indicator<Num> priceIndicator, Num lossPercentage) {
+        this.priceIndicator = priceIndicator;
         this.lossPercentage = lossPercentage;
-        this.HUNDRED = closePrice.numOf(100);
     }
 
+    /**
+     * Computes the stop-loss price from the entry price and loss percentage.
+     *
+     * @param entryPrice     the entry price
+     * @param lossPercentage the loss percentage
+     * @param isBuy          true for long positions, false for short positions
+     * @return the stop-loss price
+     * @since 0.22.3
+     */
+    public static Num stopLossPrice(Num entryPrice, Num lossPercentage, boolean isBuy) {
+        if (entryPrice == null) {
+            throw new IllegalArgumentException("entryPrice must not be null");
+        }
+        if (lossPercentage == null) {
+            throw new IllegalArgumentException("lossPercentage must not be null");
+        }
+        var hundred = entryPrice.getNumFactory().hundred();
+        var lossRatioThreshold = isBuy ? hundred.minus(lossPercentage).dividedBy(hundred)
+                : hundred.plus(lossPercentage).dividedBy(hundred);
+        return entryPrice.multipliedBy(lossRatioThreshold);
+    }
+
+    /**
+     * Computes the stop-loss price from the entry price and an absolute loss
+     * distance.
+     *
+     * @param entryPrice   the entry price
+     * @param lossDistance the absolute price distance to the stop
+     * @param isBuy        true for long positions, false for short positions
+     * @return the stop-loss price
+     * @since 0.22.3
+     */
+    public static Num stopLossPriceFromDistance(Num entryPrice, Num lossDistance, boolean isBuy) {
+        if (entryPrice == null) {
+            throw new IllegalArgumentException("entryPrice must not be null");
+        }
+        if (lossDistance == null) {
+            throw new IllegalArgumentException("lossDistance must not be null");
+        }
+        return isBuy ? entryPrice.minus(lossDistance) : entryPrice.plus(lossDistance);
+    }
+
+    /**
+     * Returns the stop-loss price for the supplied position entry.
+     *
+     * @param series   the price series (unused in this implementation; required by
+     *                 {@link StopLossPriceModel})
+     * @param position the position being evaluated
+     * @return the stop-loss price, or {@code null} if unavailable
+     * @since 0.22.3
+     */
+    @Override
+    public Num stopPrice(BarSeries series, Position position) {
+        if (position == null || position.getEntry() == null) {
+            return null;
+        }
+        Num entryPrice = position.getEntry().getNetPrice();
+        if (Num.isNaNOrNull(entryPrice)) {
+            return null;
+        }
+        return stopLossPrice(entryPrice, lossPercentage, position.getEntry().isBuy());
+    }
+
+    /** This rule uses the {@code tradingRecord}. */
     @Override
     public boolean isSatisfied(int index, TradingRecord tradingRecord) {
         boolean satisfied = false;
         // No trading history or no position opened, no loss
         if (tradingRecord != null) {
-            Position currentPosition = tradingRecord.getCurrentPosition();
+            var currentPosition = tradingRecord.getCurrentPosition();
             if (currentPosition.isOpened()) {
 
-                Num entryPrice = currentPosition.getEntry().getNetPrice();
-                Num currentPrice = closePrice.getValue(index);
+                var entryPrice = currentPosition.getEntry().getNetPrice();
+                var currentPrice = priceIndicator.getValue(index);
 
                 if (currentPosition.getEntry().isBuy()) {
                     satisfied = isBuyStopSatisfied(entryPrice, currentPrice);
@@ -94,15 +133,27 @@ public class StopLossRule extends AbstractRule {
         return satisfied;
     }
 
-    private boolean isSellStopSatisfied(Num entryPrice, Num currentPrice) {
-        Num lossRatioThreshold = HUNDRED.plus(lossPercentage).dividedBy(HUNDRED);
-        Num threshold = entryPrice.multipliedBy(lossRatioThreshold);
-        return currentPrice.isGreaterThanOrEqual(threshold);
+    /**
+     * Checks stop-loss trigger condition for a long position.
+     *
+     * @param entryPrice   entry price
+     * @param currentPrice current price
+     * @return {@code true} when current price reaches long stop-loss threshold
+     */
+    private boolean isBuyStopSatisfied(Num entryPrice, Num currentPrice) {
+        var threshold = stopLossPrice(entryPrice, lossPercentage, true);
+        return currentPrice.isLessThanOrEqual(threshold);
     }
 
-    private boolean isBuyStopSatisfied(Num entryPrice, Num currentPrice) {
-        Num lossRatioThreshold = HUNDRED.minus(lossPercentage).dividedBy(HUNDRED);
-        Num threshold = entryPrice.multipliedBy(lossRatioThreshold);
-        return currentPrice.isLessThanOrEqual(threshold);
+    /**
+     * Checks stop-loss trigger condition for a short position.
+     *
+     * @param entryPrice   entry price
+     * @param currentPrice current price
+     * @return {@code true} when current price reaches short stop-loss threshold
+     */
+    private boolean isSellStopSatisfied(Num entryPrice, Num currentPrice) {
+        var threshold = stopLossPrice(entryPrice, lossPercentage, false);
+        return currentPrice.isGreaterThanOrEqual(threshold);
     }
 }

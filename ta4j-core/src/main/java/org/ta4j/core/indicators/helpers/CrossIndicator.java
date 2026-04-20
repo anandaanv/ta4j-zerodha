@@ -1,25 +1,5 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2014-2017 Marc de Verdelhan, 2017-2021 Ta4j Organization & respective
- * authors (see AUTHORS)
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+/*
+ * SPDX-License-Identifier: MIT
  */
 package org.ta4j.core.indicators.helpers;
 
@@ -30,18 +10,20 @@ import org.ta4j.core.num.Num;
 /**
  * Cross indicator.
  *
- * Boolean indicator which monitors two-indicators crossings.
+ * <p>
+ * Boolean indicator that monitors the crossing of two indicators.
  */
 public class CrossIndicator extends CachedIndicator<Boolean> {
 
     /** Upper indicator */
     private final Indicator<Num> up;
+
     /** Lower indicator */
     private final Indicator<Num> low;
 
     /**
      * Constructor.
-     * 
+     *
      * @param up  the upper indicator
      * @param low the lower indicator
      */
@@ -54,32 +36,32 @@ public class CrossIndicator extends CachedIndicator<Boolean> {
 
     @Override
     protected Boolean calculate(int index) {
+        int unstableBoundary = Math.max(up.getCountOfUnstableBars(), low.getCountOfUnstableBars());
 
         int i = index;
-        if (i == 0 || up.getValue(i).isGreaterThanOrEqual(low.getValue(i))) {
+        if (i <= unstableBoundary || up.getValue(i).isGreaterThanOrEqual(low.getValue(i))) {
             return false;
         }
 
-        i--;
-        if (up.getValue(i).isGreaterThan(low.getValue(i))) {
-            return true;
-        }
-        while (i > 0 && up.getValue(i).isEqual(low.getValue(i))) {
+        do {
             i--;
-        }
-        return (i != 0) && (up.getValue(i).isGreaterThan(low.getValue(i)));
+        } while (i > unstableBoundary && up.getValue(i).isEqual(low.getValue(i)));
+
+        return up.getValue(i).isGreaterThan(low.getValue(i));
     }
 
-    /**
-     * @return the initial lower indicator
-     */
+    @Override
+    public int getCountOfUnstableBars() {
+        int unstableBoundary = Math.max(up.getCountOfUnstableBars(), low.getCountOfUnstableBars());
+        return unstableBoundary + 1;
+    }
+
+    /** @return the initial lower indicator */
     public Indicator<Num> getLow() {
         return low;
     }
 
-    /**
-     * @return the initial upper indicator
-     */
+    /** @return the initial upper indicator */
     public Indicator<Num> getUp() {
         return up;
     }

@@ -1,55 +1,110 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2014-2017 Marc de Verdelhan, 2017-2021 Ta4j Organization & respective
- * authors (see AUTHORS)
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+/*
+ * SPDX-License-Identifier: MIT
  */
 package org.ta4j.core.analysis;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-
+import java.util.Objects;
 import org.ta4j.core.BarSeries;
-import org.ta4j.core.Indicator;
+import org.ta4j.core.BaseTradingRecord;
 import org.ta4j.core.Position;
+import org.ta4j.core.Trade;
 import org.ta4j.core.TradingRecord;
 import org.ta4j.core.num.Num;
+import org.ta4j.core.num.NumFactory;
 
 /**
- * The cash flow.
- *
- * This class allows to follow the money cash flow involved by a list of
- * positions over a bar series.
+ * Allows to follow the money cash flow involved by a list of positions over a
+ * bar series, either marked to market or using realized values only.
  */
-public class CashFlow implements Indicator<Num> {
+public class CashFlow implements PerformanceIndicator {
 
     /**
-     * The bar series
+     * The bar series.
      */
     private final BarSeries barSeries;
 
     /**
-     * The cash flow values
+     * The (accrued) cash flow sequence (without trading costs).
      */
-    private List<Num> values;
+    private final List<Num> values;
+
+    /**
+     * The first logical bar index materialized in {@link #values}.
+     */
+    private final int valueStartIndex;
+
+    /**
+     * The last logical bar index materialized in {@link #values}.
+     */
+    private final int valueEndIndex;
+
+    /**
+     * The equity curve calculation mode.
+     */
+    private final EquityCurveMode equityCurveMode;
+
+    /**
+     * Constructor.
+     *
+     * @param barSeries            the bar series
+     * @param tradingRecord        the trading record
+     * @param finalIndex           index up until cash flows of open positions are
+     *                             considered
+     * @param equityCurveMode      the calculation mode
+     * @param openPositionHandling how to handle open positions
+     * @since 0.22.2
+     */
+    public CashFlow(BarSeries barSeries, TradingRecord tradingRecord, int finalIndex, EquityCurveMode equityCurveMode,
+            OpenPositionHandling openPositionHandling) {
+        this(barSeries, tradingRecord, 0, barSeries.getEndIndex(), finalIndex, equityCurveMode, openPositionHandling);
+    }
+
+    /**
+     * Constructor materializing only a bounded logical window on the original
+     * series.
+     *
+     * @param barSeries            the bar series
+     * @param tradingRecord        the trading record
+     * @param startIndex           first logical bar index to materialize
+     * @param finalIndex           last logical bar index to materialize and to
+     *                             consider for open positions
+     * @param equityCurveMode      the calculation mode
+     * @param openPositionHandling how to handle open positions
+     * @since 0.22.5
+     */
+    public CashFlow(BarSeries barSeries, TradingRecord tradingRecord, int startIndex, int finalIndex,
+            EquityCurveMode equityCurveMode, OpenPositionHandling openPositionHandling) {
+        this(barSeries, tradingRecord, startIndex, finalIndex, finalIndex, equityCurveMode, openPositionHandling);
+    }
+
+    /**
+     * Constructor for cash flows of a closed position.
+     *
+     * @param barSeries       the bar series
+     * @param position        a single position
+     * @param equityCurveMode the calculation mode
+     * @since 0.22.2
+     */
+    public CashFlow(BarSeries barSeries, Position position, EquityCurveMode equityCurveMode) {
+        this(barSeries, new BaseTradingRecord(position), barSeries.getEndIndex(), equityCurveMode);
+    }
+
+    /**
+     * Constructor.
+     *
+     * @param barSeries       the bar series
+     * @param tradingRecord   the trading record
+     * @param finalIndex      index up until cash flows of open positions are
+     *                        considered
+     * @param equityCurveMode the calculation mode
+     * @since 0.22.2
+     */
+    public CashFlow(BarSeries barSeries, TradingRecord tradingRecord, int finalIndex, EquityCurveMode equityCurveMode) {
+        this(barSeries, tradingRecord, finalIndex, equityCurveMode, OpenPositionHandling.MARK_TO_MARKET);
+    }
 
     /**
      * Constructor for cash flows of a closed position.
@@ -58,10 +113,7 @@ public class CashFlow implements Indicator<Num> {
      * @param position  a single position
      */
     public CashFlow(BarSeries barSeries, Position position) {
-        this.barSeries = barSeries;
-        values = new ArrayList<>(Collections.singletonList(numOf(1)));
-        calculate(position);
-        fillToTheEnd();
+        this(barSeries, position, EquityCurveMode.MARK_TO_MARKET);
     }
 
     /**
@@ -71,11 +123,35 @@ public class CashFlow implements Indicator<Num> {
      * @param tradingRecord the trading record
      */
     public CashFlow(BarSeries barSeries, TradingRecord tradingRecord) {
-        this.barSeries = barSeries;
-        values = new ArrayList<>(Collections.singletonList(numOf(1)));
-        calculate(tradingRecord);
+        this(barSeries, tradingRecord, tradingRecord.getEndIndex(barSeries), EquityCurveMode.MARK_TO_MARKET,
+                OpenPositionHandling.MARK_TO_MARKET);
+    }
 
-        fillToTheEnd();
+    /**
+     * Constructor.
+     *
+     * @param barSeries       the bar series
+     * @param tradingRecord   the trading record
+     * @param equityCurveMode the calculation mode
+     * @since 0.22.2
+     */
+    public CashFlow(BarSeries barSeries, TradingRecord tradingRecord, EquityCurveMode equityCurveMode) {
+        this(barSeries, tradingRecord, tradingRecord.getEndIndex(barSeries), equityCurveMode,
+                OpenPositionHandling.MARK_TO_MARKET);
+    }
+
+    /**
+     * Constructor.
+     *
+     * @param barSeries            the bar series
+     * @param tradingRecord        the trading record
+     * @param equityCurveMode      the calculation mode
+     * @param openPositionHandling how to handle open positions
+     * @since 0.22.2
+     */
+    public CashFlow(BarSeries barSeries, TradingRecord tradingRecord, EquityCurveMode equityCurveMode,
+            OpenPositionHandling openPositionHandling) {
+        this(barSeries, tradingRecord, tradingRecord.getEndIndex(barSeries), equityCurveMode, openPositionHandling);
     }
 
     /**
@@ -87,11 +163,111 @@ public class CashFlow implements Indicator<Num> {
      *                      considered
      */
     public CashFlow(BarSeries barSeries, TradingRecord tradingRecord, int finalIndex) {
-        this.barSeries = barSeries;
-        values = new ArrayList<>(Collections.singletonList(numOf(1)));
-        calculate(tradingRecord, finalIndex);
+        this(barSeries, tradingRecord, finalIndex, EquityCurveMode.MARK_TO_MARKET, OpenPositionHandling.MARK_TO_MARKET);
+    }
 
-        fillToTheEnd();
+    /**
+     * Constructor.
+     *
+     * @param barSeries            the bar series
+     * @param tradingRecord        the trading record
+     * @param openPositionHandling how to handle open positions
+     * @since 0.22.2
+     */
+    public CashFlow(BarSeries barSeries, TradingRecord tradingRecord, OpenPositionHandling openPositionHandling) {
+        this(barSeries, tradingRecord, tradingRecord.getEndIndex(barSeries), EquityCurveMode.MARK_TO_MARKET,
+                openPositionHandling);
+    }
+
+    private CashFlow(BarSeries barSeries, TradingRecord tradingRecord, int startIndex, int endIndex, int finalIndex,
+            EquityCurveMode equityCurveMode, OpenPositionHandling openPositionHandling) {
+        this.barSeries = Objects.requireNonNull(barSeries);
+        this.equityCurveMode = Objects.requireNonNull(equityCurveMode);
+        int seriesEnd = barSeries.getEndIndex();
+        this.valueStartIndex = Math.max(0, startIndex);
+        this.valueEndIndex = seriesEnd < 0 ? -1 : Math.min(Math.max(endIndex, this.valueStartIndex), seriesEnd);
+        int size = this.valueEndIndex < this.valueStartIndex ? 0 : this.valueEndIndex - this.valueStartIndex + 1;
+        this.values = new ArrayList<>(Collections.nCopies(size, barSeries.numFactory().one()));
+        calculate(Objects.requireNonNull(tradingRecord), finalIndex, Objects.requireNonNull(openPositionHandling));
+    }
+
+    /**
+     * Calculates the cash flow for a single position (including accrued cashflow
+     * for open positions).
+     *
+     * @param position   a single position
+     * @param finalIndex index up until cash flow of open positions is considered
+     * @since 0.22.2
+     */
+    @Override
+    public void calculatePosition(Position position, int finalIndex) {
+        Trade entry = position.getEntry();
+        if (entry == null) {
+            return;
+        }
+        int seriesEnd = barSeries.getEndIndex();
+        int entryIndex = entry.getIndex();
+        if (entryIndex > finalIndex || entryIndex > seriesEnd) {
+            return;
+        }
+        int endIndex = determineEndIndex(position, finalIndex, seriesEnd);
+        int seriesBegin = barSeries.getBeginIndex();
+        if (endIndex < seriesBegin) {
+            return;
+        }
+        int windowStartIndex = Math.max(valueStartIndex, seriesBegin);
+        int windowEndIndex = Math.min(valueEndIndex, seriesEnd);
+        if (windowStartIndex > windowEndIndex || endIndex < windowStartIndex) {
+            return;
+        }
+
+        NumFactory numFactory = barSeries.numFactory();
+        boolean isLongTrade = entry.isBuy();
+        Num netEntryPrice = entry.getNetPrice();
+        Num entryEquity = getStoredValue(Math.max(entryIndex, windowStartIndex));
+        if (!entryEquity.isGreaterThan(numFactory.zero())) {
+            return;
+        }
+        int ratioIndex = endIndex;
+        if (ratioIndex == entryIndex && entryIndex < seriesEnd) {
+            ratioIndex = entryIndex + 1;
+        }
+
+        if (equityCurveMode == EquityCurveMode.MARK_TO_MARKET) {
+            Num averageHoldingCostPerPeriod = averageHoldingCostPerPeriod(position, endIndex, numFactory);
+            boolean windowStartSeeded = false;
+            if (entryIndex < windowStartIndex) {
+                Num windowStartPrice = windowStartIndex == endIndex ? resolveExitPrice(position, endIndex, barSeries)
+                        : barSeries.getBar(windowStartIndex).getClosePrice();
+                Num windowStartNetPrice = addCost(windowStartPrice, averageHoldingCostPerPeriod, isLongTrade);
+                Num windowStartRatio = getIntermediateRatio(isLongTrade, netEntryPrice, windowStartNetPrice);
+                multiplyValue(windowStartIndex, windowStartRatio);
+                windowStartSeeded = true;
+            }
+            int start = Math.max(Math.max(entryIndex + 1, seriesBegin + 1), windowStartIndex + 1);
+            for (int barIndex = start; barIndex < endIndex && barIndex <= windowEndIndex; barIndex++) {
+                Num closePrice = barSeries.getBar(barIndex).getClosePrice();
+                Num intermediateNetPrice = addCost(closePrice, averageHoldingCostPerPeriod, isLongTrade);
+                Num ratio = getIntermediateRatio(isLongTrade, netEntryPrice, intermediateNetPrice);
+                multiplyValue(barIndex, ratio);
+            }
+            Num exitPrice = resolveExitPrice(position, endIndex, barSeries);
+            Num netExitPrice = addCost(exitPrice, averageHoldingCostPerPeriod, isLongTrade);
+            Num ratio = getIntermediateRatio(isLongTrade, netEntryPrice, netExitPrice);
+            if (ratioIndex <= windowEndIndex && !(windowStartSeeded && ratioIndex == windowStartIndex)) {
+                multiplyValue(ratioIndex, ratio);
+            }
+            multiplyRange(ratioIndex + 1, windowEndIndex, ratio);
+            return;
+        }
+
+        Trade exit = position.getExit();
+        if (exit != null && endIndex >= exit.getIndex()) {
+            Num holdingCost = position.getHoldingCost(endIndex);
+            Num netExitPrice = addCost(exit.getNetPrice(), holdingCost, isLongTrade);
+            Num ratio = getIntermediateRatio(isLongTrade, netEntryPrice, netExitPrice);
+            multiplyRange(Math.max(ratioIndex, windowStartIndex), windowEndIndex, ratio);
+        }
     }
 
     /**
@@ -100,17 +276,17 @@ public class CashFlow implements Indicator<Num> {
      */
     @Override
     public Num getValue(int index) {
-        return values.get(index);
+        return getStoredValue(index);
+    }
+
+    @Override
+    public int getCountOfUnstableBars() {
+        return 0;
     }
 
     @Override
     public BarSeries getBarSeries() {
         return barSeries;
-    }
-
-    @Override
-    public Num numOf(Number number) {
-        return barSeries.numOf(number);
     }
 
     /**
@@ -121,150 +297,53 @@ public class CashFlow implements Indicator<Num> {
     }
 
     /**
-     * Calculates the cash flow for a single closed position.
-     *
-     * @param position a single position
+     * @return the equity curve mode used for this cash flow
+     * @since 0.22.2
      */
-    private void calculate(Position position) {
-        if (position.isOpened()) {
-            throw new IllegalArgumentException(
-                    "Position is not closed. Final index of observation needs to be provided.");
-        }
-        calculate(position, position.getExit().getIndex());
+    @Override
+    public EquityCurveMode getEquityCurveMode() {
+        return equityCurveMode;
     }
 
-    /**
-     * Calculates the cash flow for a single position (including accrued cashflow
-     * for open positions).
-     *
-     * @param position   a single position
-     * @param finalIndex index up until cash flow of open positions is considered
-     */
-    private void calculate(Position position, int finalIndex) {
-        boolean isLongTrade = position.getEntry().isBuy();
-        int endIndex = determineEndIndex(position, finalIndex, barSeries.getEndIndex());
-        final int entryIndex = position.getEntry().getIndex();
-        int begin = entryIndex + 1;
-        if (begin > values.size()) {
-            Num lastValue = values.get(values.size() - 1);
-            values.addAll(Collections.nCopies(begin - values.size(), lastValue));
+    private void multiplyValue(int index, Num ratio) {
+        if (!containsIndex(index)) {
+            return;
         }
-        // Trade is not valid if net balance at the entryIndex is negative
-        if (values.get(values.size() - 1).isGreaterThan(values.get(0).numOf(0))) {
-            int startingIndex = Math.max(begin, 1);
+        int valueIndex = toValueIndex(index);
+        values.set(valueIndex, values.get(valueIndex).multipliedBy(ratio));
+    }
 
-            int nPeriods = endIndex - entryIndex;
-            Num holdingCost = position.getHoldingCost(endIndex);
-            Num avgCost = holdingCost.dividedBy(holdingCost.numOf(nPeriods));
-
-            // Add intermediate cash flows during position
-            Num netEntryPrice = position.getEntry().getNetPrice();
-            for (int i = startingIndex; i < endIndex; i++) {
-                Num intermediateNetPrice = addCost(barSeries.getBar(i).getClosePrice(), avgCost, isLongTrade);
-                Num ratio = getIntermediateRatio(isLongTrade, netEntryPrice, intermediateNetPrice);
-                values.add(values.get(entryIndex).multipliedBy(ratio));
-            }
-
-            // add net cash flow at exit position
-            Num exitPrice;
-            if (position.getExit() != null) {
-                exitPrice = position.getExit().getNetPrice();
-            } else {
-                exitPrice = barSeries.getBar(endIndex).getClosePrice();
-            }
-            Num ratio = getIntermediateRatio(isLongTrade, netEntryPrice, addCost(exitPrice, avgCost, isLongTrade));
-            values.add(values.get(entryIndex).multipliedBy(ratio));
+    private void multiplyRange(int startIndex, int endIndex, Num ratio) {
+        if (values.isEmpty()) {
+            return;
+        }
+        int start = Math.max(valueStartIndex, startIndex);
+        int end = Math.min(endIndex, valueEndIndex);
+        if (start > end) {
+            return;
+        }
+        for (int i = start; i <= end; i++) {
+            int valueIndex = toValueIndex(i);
+            values.set(valueIndex, values.get(valueIndex).multipliedBy(ratio));
         }
     }
 
-    /**
-     * Calculates the ratio of intermediate prices.
-     *
-     * @param isLongTrade true, if the entry trade type is BUY
-     * @param entryPrice  price ratio denominator
-     * @param exitPrice   price ratio numerator
-     */
+    private boolean containsIndex(int index) {
+        return index >= valueStartIndex && index <= valueEndIndex;
+    }
+
+    private Num getStoredValue(int index) {
+        return values.get(toValueIndex(index));
+    }
+
+    private int toValueIndex(int index) {
+        return index - valueStartIndex;
+    }
+
     private static Num getIntermediateRatio(boolean isLongTrade, Num entryPrice, Num exitPrice) {
-        Num ratio;
         if (isLongTrade) {
-            ratio = exitPrice.dividedBy(entryPrice);
-        } else {
-            ratio = entryPrice.numOf(2).minus(exitPrice.dividedBy(entryPrice));
+            return exitPrice.dividedBy(entryPrice);
         }
-        return ratio;
-    }
-
-    /**
-     * Calculates the cash flow for the closed positions of a trading record.
-     *
-     * @param tradingRecord the trading record
-     */
-    private void calculate(TradingRecord tradingRecord) {
-        // For each position...
-        tradingRecord.getPositions().forEach(this::calculate);
-    }
-
-    /**
-     * Calculates the cash flow for all positions of a trading record, including
-     * accrued cash flow of an open position.
-     *
-     * @param tradingRecord the trading record
-     * @param finalIndex    index up until cash flows of open positions are
-     *                      considered
-     */
-    private void calculate(TradingRecord tradingRecord, int finalIndex) {
-        calculate(tradingRecord);
-
-        // Add accrued cash flow of open position
-        if (tradingRecord.getCurrentPosition().isOpened()) {
-            calculate(tradingRecord.getCurrentPosition(), finalIndex);
-        }
-    }
-
-    /**
-     * Adjusts (intermediate) price to incorporate trading costs.
-     *
-     * @param rawPrice    the gross asset price
-     * @param holdingCost share of the holding cost per period
-     * @param isLongTrade true, if the entry trade type is BUY
-     */
-    static Num addCost(Num rawPrice, Num holdingCost, boolean isLongTrade) {
-        Num netPrice;
-        if (isLongTrade) {
-            netPrice = rawPrice.minus(holdingCost);
-        } else {
-            netPrice = rawPrice.plus(holdingCost);
-        }
-        return netPrice;
-    }
-
-    /**
-     * Fills with last value till the end of the series.
-     */
-    private void fillToTheEnd() {
-        if (barSeries.getEndIndex() >= values.size()) {
-            Num lastValue = values.get(values.size() - 1);
-            values.addAll(Collections.nCopies(barSeries.getEndIndex() - values.size() + 1, lastValue));
-        }
-    }
-
-    /**
-     * Determines the the valid final index to be considered.
-     *
-     * @param position   the position
-     * @param finalIndex index up until cash flows of open positions are considered
-     * @param maxIndex   maximal valid index
-     */
-    static int determineEndIndex(Position position, int finalIndex, int maxIndex) {
-        int idx = finalIndex;
-        // After closing of position, no further accrual necessary
-        if (position.getExit() != null) {
-            idx = Math.min(position.getExit().getIndex(), finalIndex);
-        }
-        // Accrual at most until maximal index of asset data
-        if (idx > maxIndex) {
-            idx = maxIndex;
-        }
-        return idx;
+        return entryPrice.getNumFactory().numOf(2).minus(exitPrice.dividedBy(entryPrice));
     }
 }

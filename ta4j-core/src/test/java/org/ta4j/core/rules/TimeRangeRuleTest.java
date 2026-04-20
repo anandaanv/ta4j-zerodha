@@ -1,74 +1,53 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2014-2017 Marc de Verdelhan, 2017-2021 Ta4j Organization & respective
- * authors (see AUTHORS)
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+/*
+ * SPDX-License-Identifier: MIT
  */
 package org.ta4j.core.rules;
 
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
+import java.time.Instant;
 import java.time.LocalTime;
-import java.time.ZonedDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.Arrays;
-import java.util.function.Function;
+import java.util.List;
 
 import org.junit.Test;
 import org.ta4j.core.Bar;
 import org.ta4j.core.indicators.AbstractIndicatorTest;
-import org.ta4j.core.indicators.DateTimeIndicator;
-import org.ta4j.core.mocks.MockBarSeries;
-import org.ta4j.core.num.Num;
+import org.ta4j.core.indicators.helpers.DateTimeIndicator;
+import org.ta4j.core.mocks.MockBarSeriesBuilder;
+import org.ta4j.core.num.NumFactory;
 
 public class TimeRangeRuleTest extends AbstractIndicatorTest<Object, Object> {
 
-    public TimeRangeRuleTest(Function<Number, Num> numFunction) {
+    public TimeRangeRuleTest(NumFactory numFunction) {
         super(numFunction);
     }
 
     @Test
     public void isSatisfiedForBuy() {
-        final DateTimeFormatter dtf = DateTimeFormatter.ISO_ZONED_DATE_TIME;
-        DateTimeIndicator dateTimeIndicator = new DateTimeIndicator(
-                new MockBarSeries(numFunction, new double[] { 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100 },
-                        new ZonedDateTime[] { ZonedDateTime.parse("2019-09-17T00:00:00-00:00", dtf), // Index=0
-                                ZonedDateTime.parse("2019-09-17T05:00:00-00:00", dtf), // 1
-                                ZonedDateTime.parse("2019-09-17T07:00:00-00:00", dtf), // 2
-                                ZonedDateTime.parse("2019-09-17T08:00:00-00:00", dtf), // 3
-                                ZonedDateTime.parse("2019-09-17T15:00:00-00:00", dtf), // 4
-                                ZonedDateTime.parse("2019-09-17T15:05:00-00:00", dtf), // 5
-                                ZonedDateTime.parse("2019-09-17T16:59:00-00:00", dtf), // 6
-                                ZonedDateTime.parse("2019-09-17T17:05:00-00:00", dtf), // 7
-                                ZonedDateTime.parse("2019-09-17T23:00:00-00:00", dtf), // 8
-                                ZonedDateTime.parse("2019-09-17T23:30:00-00:00", dtf), // 9
-                                ZonedDateTime.parse("2019-09-17T23:35:00-00:00", dtf) // 10
-                        }), Bar::getBeginTime);
-        TimeRangeRule rule = new TimeRangeRule(
-                Arrays.asList(new TimeRangeRule.TimeRange(LocalTime.of(0, 0), LocalTime.of(4, 0)),
-                        new TimeRangeRule.TimeRange(LocalTime.of(6, 0), LocalTime.of(7, 0)),
-                        new TimeRangeRule.TimeRange(LocalTime.of(12, 0), LocalTime.of(15, 0)),
-                        new TimeRangeRule.TimeRange(LocalTime.of(17, 0), LocalTime.of(21, 0)),
-                        new TimeRangeRule.TimeRange(LocalTime.of(22, 0), LocalTime.of(23, 30))),
-                dateTimeIndicator);
+        final var series = new MockBarSeriesBuilder().withNumFactory(numFactory).build();
+
+        series.barBuilder().endTime(Instant.parse("2019-09-17T00:00:00Z")).closePrice(100).add();
+        series.barBuilder().endTime(Instant.parse("2019-09-17T05:00:00Z")).closePrice(100).add();
+        series.barBuilder().endTime(Instant.parse("2019-09-17T07:00:00Z")).closePrice(100).add();
+        series.barBuilder().endTime(Instant.parse("2019-09-17T08:00:00Z")).closePrice(100).add();
+        series.barBuilder().endTime(Instant.parse("2019-09-17T15:00:00Z")).closePrice(100).add();
+        series.barBuilder().endTime(Instant.parse("2019-09-17T15:05:00Z")).closePrice(100).add();
+        series.barBuilder().endTime(Instant.parse("2019-09-17T16:59:00Z")).closePrice(100).add();
+        series.barBuilder().endTime(Instant.parse("2019-09-17T17:05:00Z")).closePrice(100).add();
+        series.barBuilder().endTime(Instant.parse("2019-09-17T23:00:00Z")).closePrice(100).add();
+        series.barBuilder().endTime(Instant.parse("2019-09-17T23:30:00Z")).closePrice(100).add();
+        series.barBuilder().endTime(Instant.parse("2019-09-17T23:35:00Z")).closePrice(100).add();
+
+        var dateTimeIndicator = new DateTimeIndicator(series, Bar::getBeginTime);
+        var _00_04 = new TimeRangeRule.TimeRange(LocalTime.of(0, 0), LocalTime.of(4, 0));
+        var _06_07 = new TimeRangeRule.TimeRange(LocalTime.of(6, 0), LocalTime.of(7, 0));
+        var _12_15 = new TimeRangeRule.TimeRange(LocalTime.of(12, 0), LocalTime.of(15, 0));
+        var _17_21 = new TimeRangeRule.TimeRange(LocalTime.of(17, 0), LocalTime.of(21, 0));
+        var _22_2330 = new TimeRangeRule.TimeRange(LocalTime.of(22, 0), LocalTime.of(23, 30));
+        var allRanges = List.of(_00_04, _06_07, _12_15, _17_21, _22_2330);
+        TimeRangeRule rule = new TimeRangeRule(allRanges, dateTimeIndicator);
 
         assertTrue(rule.isSatisfied(0, null));
         assertFalse(rule.isSatisfied(1, null));
@@ -81,5 +60,52 @@ public class TimeRangeRuleTest extends AbstractIndicatorTest<Object, Object> {
         assertTrue(rule.isSatisfied(8, null));
         assertTrue(rule.isSatisfied(9, null));
         assertFalse(rule.isSatisfied(10, null));
+    }
+
+    @Test
+    public void serializeAndDeserialize() {
+        final var series = new MockBarSeriesBuilder().withNumFactory(numFactory).build();
+        series.barBuilder().endTime(Instant.parse("2019-09-17T02:00:00Z")).add();
+        series.barBuilder().endTime(Instant.parse("2019-09-17T18:00:00Z")).add();
+        var dateTimeIndicator = new DateTimeIndicator(series, Bar::getBeginTime);
+        var range = new TimeRangeRule.TimeRange(LocalTime.of(1, 0), LocalTime.of(3, 0));
+        TimeRangeRule rule = new TimeRangeRule(List.of(range), dateTimeIndicator);
+        RuleSerializationRoundTripTestSupport.assertRuleRoundTrips(series, rule);
+        RuleSerializationRoundTripTestSupport.assertRuleJsonRoundTrips(series, rule);
+    }
+
+    @Test
+    public void constructorWithSecondArraysEvaluatesRanges() {
+        final var series = new MockBarSeriesBuilder().withNumFactory(numFactory).build();
+        series.barBuilder().endTime(Instant.parse("2019-09-17T02:30:00Z")).add();
+        series.barBuilder().endTime(Instant.parse("2019-09-17T18:15:00Z")).add();
+        var dateTimeIndicator = new DateTimeIndicator(series, Bar::getBeginTime);
+        int[] from = { LocalTime.of(2, 0).toSecondOfDay(), LocalTime.of(18, 0).toSecondOfDay() };
+        int[] to = { LocalTime.of(3, 0).toSecondOfDay(), LocalTime.of(19, 0).toSecondOfDay() };
+
+        TimeRangeRule rule = new TimeRangeRule(dateTimeIndicator, from, to);
+
+        assertTrue("02:30 should be inside first range", rule.isSatisfied(0, null));
+        assertTrue("18:15 should be inside second range", rule.isSatisfied(1, null));
+    }
+
+    @Test
+    public void constructorWithSecondArraysValidatesLengths() {
+        final var series = new MockBarSeriesBuilder().withNumFactory(numFactory).build();
+        var dateTimeIndicator = new DateTimeIndicator(series, Bar::getBeginTime);
+        int[] from = { LocalTime.of(2, 0).toSecondOfDay() };
+        int[] to = { LocalTime.of(3, 0).toSecondOfDay(), LocalTime.of(4, 0).toSecondOfDay() };
+
+        assertThrows(IllegalArgumentException.class, () -> new TimeRangeRule(dateTimeIndicator, from, to));
+    }
+
+    @Test
+    public void constructorWithSecondArraysValidatesBounds() {
+        final var series = new MockBarSeriesBuilder().withNumFactory(numFactory).build();
+        var dateTimeIndicator = new DateTimeIndicator(series, Bar::getBeginTime);
+        int[] from = { -1 };
+        int[] to = { LocalTime.of(1, 0).toSecondOfDay() };
+
+        assertThrows(IllegalArgumentException.class, () -> new TimeRangeRule(dateTimeIndicator, from, to));
     }
 }

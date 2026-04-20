@@ -1,31 +1,11 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2014-2017 Marc de Verdelhan, 2017-2021 Ta4j Organization & respective
- * authors (see AUTHORS)
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+/*
+ * SPDX-License-Identifier: MIT
  */
 package org.ta4j.core.indicators.statistics;
 
 import org.ta4j.core.Indicator;
 import org.ta4j.core.indicators.CachedIndicator;
-import org.ta4j.core.indicators.SMAIndicator;
+import org.ta4j.core.indicators.averages.SMAIndicator;
 import org.ta4j.core.num.Num;
 
 /**
@@ -51,12 +31,12 @@ public class MeanDeviationIndicator extends CachedIndicator<Num> {
         super(indicator);
         this.indicator = indicator;
         this.barCount = barCount;
-        sma = new SMAIndicator(indicator, barCount);
+        this.sma = new SMAIndicator(indicator, barCount);
     }
 
     @Override
     protected Num calculate(int index) {
-        Num absoluteDeviations = numOf(0);
+        Num absoluteDeviations = getBarSeries().numFactory().zero();
 
         final Num average = sma.getValue(index);
         final int startIndex = Math.max(0, index - barCount + 1);
@@ -66,7 +46,12 @@ public class MeanDeviationIndicator extends CachedIndicator<Num> {
             // For each period...
             absoluteDeviations = absoluteDeviations.plus(indicator.getValue(i).minus(average).abs());
         }
-        return absoluteDeviations.dividedBy(numOf(nbValues));
+        return absoluteDeviations.dividedBy(getBarSeries().numFactory().numOf(nbValues));
+    }
+
+    @Override
+    public int getCountOfUnstableBars() {
+        return indicator.getCountOfUnstableBars() + barCount - 1;
     }
 
     @Override

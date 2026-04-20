@@ -1,34 +1,16 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2014-2017 Marc de Verdelhan, 2017-2021 Ta4j Organization & respective
- * authors (see AUTHORS)
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+/*
+ * SPDX-License-Identifier: MIT
  */
 package org.ta4j.core.indicators;
 
 import org.ta4j.core.Indicator;
+import org.ta4j.core.indicators.averages.EMAIndicator;
+import org.ta4j.core.indicators.numeric.NumericIndicator;
 import org.ta4j.core.num.Num;
 
 /**
- * Moving average convergence divergence (MACDIndicator) indicator. <br/>
- * Aka. MACD Absolute Price Oscillator (APO).
+ * Moving average convergence divergence (MACDIndicator) indicator (also called
+ * "MACD Absolute Price Oscillator (APO)").
  *
  * @see <a href=
  *      "http://stockcharts.com/school/doku.php?id=chart_school:technical_indicators:moving_average_convergence_divergence_macd">
@@ -36,13 +18,19 @@ import org.ta4j.core.num.Num;
  */
 public class MACDIndicator extends CachedIndicator<Num> {
 
-    private final EMAIndicator shortTermEma;
-    private final EMAIndicator longTermEma;
+    private final Indicator<Num> indicator;
+    private final transient EMAIndicator shortTermEma;
+    private final transient EMAIndicator longTermEma;
 
     /**
-     * Constructor with shortBarCount "12" and longBarCount "26".
+     * Constructor with:
      *
-     * @param indicator the indicator
+     * <ul>
+     * <li>{@code shortBarCount} = 12
+     * <li>{@code longBarCount} = 26
+     * </ul>
+     *
+     * @param indicator the {@link Indicator}
      */
     public MACDIndicator(Indicator<Num> indicator) {
         this(indicator, 12, 26);
@@ -51,7 +39,7 @@ public class MACDIndicator extends CachedIndicator<Num> {
     /**
      * Constructor.
      *
-     * @param indicator     the indicator
+     * @param indicator     the {@link Indicator}
      * @param shortBarCount the short time frame (normally 12)
      * @param longBarCount  the long time frame (normally 26)
      */
@@ -60,13 +48,12 @@ public class MACDIndicator extends CachedIndicator<Num> {
         if (shortBarCount > longBarCount) {
             throw new IllegalArgumentException("Long term period count must be greater than short term period count");
         }
-        shortTermEma = new EMAIndicator(indicator, shortBarCount);
-        longTermEma = new EMAIndicator(indicator, longBarCount);
+        this.indicator = indicator;
+        this.shortTermEma = new EMAIndicator(indicator, shortBarCount);
+        this.longTermEma = new EMAIndicator(indicator, longBarCount);
     }
 
     /**
-     * Short term EMA indicator
-     *
      * @return the Short term EMA indicator
      */
     public EMAIndicator getShortTermEma() {
@@ -74,16 +61,36 @@ public class MACDIndicator extends CachedIndicator<Num> {
     }
 
     /**
-     * Long term EMA indicator
-     *
      * @return the Long term EMA indicator
      */
     public EMAIndicator getLongTermEma() {
         return longTermEma;
     }
 
+    /**
+     * @param barCount of signal line
+     * @return signal line for this MACD indicator
+     */
+    public EMAIndicator getSignalLine(int barCount) {
+        return new EMAIndicator(this, barCount);
+    }
+
+    /**
+     * @param barCount of signal line
+     * @return histogram of this MACD indicator
+     */
+    public NumericIndicator getHistogram(int barCount) {
+        return NumericIndicator.of(this).minus(getSignalLine(barCount));
+    }
+
     @Override
     protected Num calculate(int index) {
         return shortTermEma.getValue(index).minus(longTermEma.getValue(index));
+    }
+
+    @Override
+    public int getCountOfUnstableBars() {
+        int emaUnstableBars = Math.max(shortTermEma.getCountOfUnstableBars(), longTermEma.getCountOfUnstableBars());
+        return indicator.getCountOfUnstableBars() + emaUnstableBars;
     }
 }

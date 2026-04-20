@@ -1,25 +1,5 @@
-/**
- * The MIT License (MIT)
- *
- * Copyright (c) 2014-2017 Marc de Verdelhan, 2017-2021 Ta4j Organization & respective
- * authors (see AUTHORS)
- *
- * Permission is hereby granted, free of charge, to any person obtaining a copy of
- * this software and associated documentation files (the "Software"), to deal in
- * the Software without restriction, including without limitation the rights to
- * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
- * the Software, and to permit persons to whom the Software is furnished to do so,
- * subject to the following conditions:
- *
- * The above copyright notice and this permission notice shall be included in all
- * copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
- * FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
- * COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
- * IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
- * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+/*
+ * SPDX-License-Identifier: MIT
  */
 package org.ta4j.core.indicators.bollinger;
 
@@ -29,37 +9,37 @@ import org.ta4j.core.num.Num;
 
 /**
  * Buy - Occurs when the price line crosses from below to above the Lower
- * Bollinger Band. Sell - Occurs when the price line crosses from above to below
- * the Upper Bollinger Band.
- * 
+ * Bollinger Band.
+ *
+ * <p>
+ * Sell - Occurs when the price line crosses from above to below the Upper
+ * Bollinger Band.
  */
 public class BollingerBandsUpperIndicator extends CachedIndicator<Num> {
 
-    private final Indicator<Num> deviation;
-
     private final BollingerBandsMiddleIndicator bbm;
-
+    private final Indicator<Num> deviation;
     private final Num k;
 
     /**
-     * Constructor. Defaults k value to 2.
-     * 
-     * @param bbm       the middle band Indicator. Typically an SMAIndicator is
-     *                  used.
+     * Constructor with {@code k} = 2.
+     *
+     * @param bbm       the middle band Indicator. Typically an {@code SMAIndicator}
+     *                  is used.
      * @param deviation the deviation above and below the middle, factored by k.
-     *                  Typically a StandardDeviationIndicator is used.
+     *                  Typically a {@code StandardDeviationIndicator} is used.
      */
     public BollingerBandsUpperIndicator(BollingerBandsMiddleIndicator bbm, Indicator<Num> deviation) {
-        this(bbm, deviation, bbm.getBarSeries().numOf(2));
+        this(bbm, deviation, bbm.getBarSeries().numFactory().two());
     }
 
     /**
      * Constructor.
-     * 
-     * @param bbm       the middle band Indicator. Typically an SMAIndicator is
-     *                  used.
+     *
+     * @param bbm       the middle band Indicator. Typically an {@code SMAIndicator}
+     *                  is used.
      * @param deviation the deviation above and below the middle, factored by k.
-     *                  Typically a StandardDeviationIndicator is used.
+     *                  Typically a {@code StandardDeviationIndicator} is used.
      * @param k         the scaling factor to multiply the deviation by. Typically
      *                  2.
      */
@@ -75,9 +55,12 @@ public class BollingerBandsUpperIndicator extends CachedIndicator<Num> {
         return bbm.getValue(index).plus(deviation.getValue(index).multipliedBy(k));
     }
 
-    /**
-     * @return the K multiplier
-     */
+    @Override
+    public int getCountOfUnstableBars() {
+        return Math.max(bbm.getCountOfUnstableBars(), deviation.getCountOfUnstableBars());
+    }
+
+    /** @return the K multiplier */
     public Num getK() {
         return k;
     }

@@ -31,6 +31,7 @@ import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.lang.ref.WeakReference;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Function;
 
@@ -90,7 +91,8 @@ public class BaseBarSeries implements BarSeries {
     /**
      * Registered listeners for bar change events
      */
-    private final List<BarSeriesListener> listeners = new CopyOnWriteArrayList<>();
+    /** Weak references to listeners — allows GC of abandoned indicators */
+    private final List<WeakReference<BarSeriesListener>> listeners = new CopyOnWriteArrayList<>();
 
     /**
      * Constructor of an unnamed series.
@@ -492,27 +494,34 @@ public class BaseBarSeries implements BarSeries {
 
     @Override
     public void addListener(BarSeriesListener listener) {
-        if (listener != null && !listeners.contains(listener)) {
-            listeners.add(listener);
+        if (listener == null) return;
+        // Check for duplicates (compare referents)
+        for (WeakReference<BarSeriesListener> ref : listeners) {
+            if (ref.get() == listener) return;
         }
+        listeners.add(new WeakReference<>(listener));
     }
 
     @Override
     public void removeListener(BarSeriesListener listener) {
-        listeners.remove(listener);
+        listeners.removeIf(ref -> ref.get() == listener || ref.get() == null);
     }
 
     private void notifyBarAdded(int index) {
         Bar bar = getBar(index);
-        for (BarSeriesListener listener : listeners) {
-            listener.onBarAdded(index, bar);
+        listeners.removeIf(ref -> ref.get() == null);  // Cleanup GC'd references
+        for (WeakReference<BarSeriesListener> ref : listeners) {
+            BarSeriesListener l = ref.get();
+            if (l != null) l.onBarAdded(index, bar);
         }
     }
 
     private void notifyBarReplaced(int index) {
         Bar bar = getBar(index);
-        for (BarSeriesListener listener : listeners) {
-            listener.onBarReplaced(index, bar);
+        listeners.removeIf(ref -> ref.get() == null);
+        for (WeakReference<BarSeriesListener> ref : listeners) {
+            BarSeriesListener l = ref.get();
+            if (l != null) l.onBarReplaced(index, bar);
         }
     }
 

@@ -27,7 +27,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import org.ta4j.core.Bar;
 import org.ta4j.core.BarSeries;
+import org.ta4j.core.BarSeriesListener;
 import org.ta4j.core.Indicator;
 
 /**
@@ -36,7 +38,7 @@ import org.ta4j.core.Indicator;
  * Caches the constructor of the indicator. Avoid to calculate the same index of
  * the indicator twice.
  */
-public abstract class CachedIndicator<T> extends AbstractIndicator<T> {
+public abstract class CachedIndicator<T> extends AbstractIndicator<T> implements BarSeriesListener {
 
     /**
      * List of cached results
@@ -58,6 +60,8 @@ public abstract class CachedIndicator<T> extends AbstractIndicator<T> {
         super(series);
         int limit = series.getMaximumBarCount();
         results = limit == Integer.MAX_VALUE ? new ArrayList<>() : new ArrayList<>(limit);
+        // Auto-register as listener for incremental computation
+        series.addListener(this);
     }
 
     /**
@@ -74,6 +78,38 @@ public abstract class CachedIndicator<T> extends AbstractIndicator<T> {
      * @return the value of the indicator
      */
     protected abstract T calculate(int index);
+
+    /**
+     * Called when a new bar is added to the series.
+     * Eagerly computes and caches the indicator value for the new bar.
+     * This enables incremental computation — no need to recalculate from scratch.
+     */
+    @Override
+    public void onBarAdded(int index, Bar bar) {
+        // Pre-compute the value for the new bar and cache it
+        try {
+            T result = calculate(index);
+            increaseLengthTo(index, getBarSeries().getMaximumBarCount());
+            highestResultIndex = index;
+            results.set(results.size() - 1, result);
+            log.trace("{}({}) pre-computed on bar event: {}", this, index, result);
+        } catch (Exception e) {
+            log.trace("{}({}) pre-computation failed: {}", this, index, e.getMessage());
+        }
+    }
+
+    /**
+     * Called when the last bar is replaced (e.g. live tick update).
+     * Invalidates and recomputes the cached value for the current bar.
+     */
+    @Override
+    public void onBarReplaced(int index, Bar bar) {
+        // Invalidate the cached value for this index and recompute
+        if (highestResultIndex >= index && results.size() > 0) {
+            results.set(results.size() - 1, null);
+        }
+        onBarAdded(index, bar);
+    }
 
     @Override
     public T getValue(int index) {
@@ -108,8 +144,9 @@ public abstract class CachedIndicator<T> extends AbstractIndicator<T> {
                 results.set(0, result);
             }
         } else {
-            if (index == series.getEndIndex()) {
-                // Don't cache result if last bar
+            if (index == series.getEndIndex() && index > highestResultIndex) {
+                // Last bar — check if already pre-computed by onBarAdded event
+                // If not pre-computed, calculate without caching (backward compat)
                 result = calculate(index);
             } else {
                 increaseLengthTo(index, maximumResultCount);

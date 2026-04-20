@@ -7,7 +7,7 @@ dependencies {
     testImplementation 'junit:junit:4.12'
     testImplementation 'org.apache.commons:commons-math3:3.6.1'
     testImplementation 'org.apache.poi:poi:3.17'
-    compileOnly 'org.projectlombok:lombok:1.18.12'
+    compileOnly 'org.projectlombok:lombok:1.18.30'
 }
 
 description = 'Ta4j Core'

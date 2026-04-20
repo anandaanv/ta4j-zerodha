@@ -31,6 +31,7 @@ import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Function;
 
 import org.slf4j.Logger;
@@ -86,6 +87,10 @@ public class BaseBarSeries implements BarSeries {
      * false otherwise
      */
     private boolean constrained;
+    /**
+     * Registered listeners for bar change events
+     */
+    private final List<BarSeriesListener> listeners = new CopyOnWriteArrayList<>();
 
     /**
      * Constructor of an unnamed series.
@@ -397,6 +402,7 @@ public class BaseBarSeries implements BarSeries {
         if (!bars.isEmpty()) {
             if (replace) {
                 bars.set(bars.size() - 1, bar);
+                notifyBarReplaced(getEndIndex());
                 return;
             }
             final int lastBarIndex = bars.size() - 1;
@@ -415,6 +421,7 @@ public class BaseBarSeries implements BarSeries {
         }
         seriesEndIndex++;
         removeExceedingBars();
+        notifyBarAdded(getEndIndex());
     }
 
     @Override
@@ -480,6 +487,32 @@ public class BaseBarSeries implements BarSeries {
             }
             // Updating removed bars count
             removedBarsCount += nbBarsToRemove;
+        }
+    }
+
+    @Override
+    public void addListener(BarSeriesListener listener) {
+        if (listener != null && !listeners.contains(listener)) {
+            listeners.add(listener);
+        }
+    }
+
+    @Override
+    public void removeListener(BarSeriesListener listener) {
+        listeners.remove(listener);
+    }
+
+    private void notifyBarAdded(int index) {
+        Bar bar = getBar(index);
+        for (BarSeriesListener listener : listeners) {
+            listener.onBarAdded(index, bar);
+        }
+    }
+
+    private void notifyBarReplaced(int index) {
+        Bar bar = getBar(index);
+        for (BarSeriesListener listener : listeners) {
+            listener.onBarReplaced(index, bar);
         }
     }
 

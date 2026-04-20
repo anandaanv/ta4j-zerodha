@@ -356,4 +356,20 @@ public interface BarSeries extends Serializable {
      */
     Function<Number, Num> function();
 
+    /**
+     * Register a listener to be notified when bars are added or updated.
+     * @param listener the listener to register
+     */
+    default void addListener(BarSeriesListener listener) {
+        // Default no-op for backward compatibility
+    }
+
+    /**
+     * Remove a previously registered listener.
+     * @param listener the listener to remove
+     */
+    default void removeListener(BarSeriesListener listener) {
+        // Default no-op for backward compatibility
+    }
+
 }
